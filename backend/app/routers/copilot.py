@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.security import require_roles
 from app.services.copilot_service import answer_question
+from app.services.openrouter_service import OpenRouterError
+from app.services.vector_service import VectorServiceError
 
 router = APIRouter()
 
@@ -15,12 +18,21 @@ class CopilotAnswer(BaseModel):
     tools_used: list[str]
     trace_enabled: bool
     policy_decision: dict
+    tool_outputs: dict | None = None
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    llm_usage: dict | None = None
 
 
 @router.post("/ask", response_model=CopilotAnswer)
-def ask_copilot(payload: CopilotQuestion, x_user_role: str = Header(default="viewer")) -> CopilotAnswer:
-    if x_user_role not in {"marketing_analyst", "admin"}:
-        raise HTTPException(status_code=403, detail="Role is not allowed to use copilot tools")
-
-    result = answer_question(payload.question, role=x_user_role)
+def ask_copilot(
+    payload: CopilotQuestion,
+    user: dict = Depends(require_roles({"marketing_analyst", "admin"})),
+) -> CopilotAnswer:
+    try:
+        result = answer_question(payload.question, role=user["role"])
+    except OpenRouterError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except VectorServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return CopilotAnswer(**result)

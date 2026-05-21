@@ -66,7 +66,7 @@ def dashboard_payload() -> dict:
             {"day": "Sat", "actual": 318, "predicted": 334},
             {"day": "Sun", "actual": 0, "predicted": 352},
         ],
-        "shap": {
+        "explainability": {
             "explanation": "The recommendation is mostly driven by high recent category engagement, strong regional demand, and a low discount sensitivity score. Churn risk slightly reduces confidence.",
             "features": [
                 {"name": "Recent product views", "impact": 0.38},
@@ -94,7 +94,12 @@ def dashboard_payload() -> dict:
                 {"id": "campaign", "label": "Email", "kind": "campaign", "x": 22, "y": 73},
                 {"id": "segment", "label": "Wellness", "kind": "segment", "x": 75, "y": 72},
             ],
-            "edges": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}],
+            "edges": [
+                {"id": "a", "type": "VIEWED", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 16, "y": 22}},
+                {"id": "b", "type": "LOCATED_IN", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 73, "y": 21}},
+                {"id": "c", "type": "TARGETED", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 22, "y": 73}},
+                {"id": "d", "type": "BELONGS_TO", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 75, "y": 72}},
+            ],
         },
         "geo": [
             {"name": "West", "revenue": "$102k", "trend": "+7.4%", "heat": 0.62, "x": 18, "y": 46},
@@ -106,11 +111,10 @@ def dashboard_payload() -> dict:
             "tools": [
                 "Forecast tool",
                 "Recommendation tool",
-                "SHAP explanation tool",
+                "Feature attribution tool",
                 "Neo4j graph tool",
                 "Geo analytics tool",
             ],
             "sampleAnswer": "Northeast revenue is rising because recent premium bundle views, regional demand, and campaign engagement are all above baseline. The recommendation tool would prioritize hydration and air quality bundles for this region.",
         },
     }
-

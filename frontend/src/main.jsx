@@ -1,18 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity,
   AreaChart,
   Bot,
   BrainCircuit,
-  ChevronRight,
   CircleDollarSign,
   GitBranch,
-  Map,
+  LogIn,
   MessageSquareText,
   PackageCheck,
   Radar,
-  Route,
   Search,
   ShieldCheck,
   Sparkles,
@@ -21,7 +19,7 @@ import {
   WandSparkles
 } from 'lucide-react';
 import './styles.css';
-import { fetchDashboardData, askCopilot } from './services/api.js';
+import { askCopilot, clearAuthSession, fetchCustomer360, fetchDashboardData, fetchIntelligenceSnapshot, getAuthToken, loginUser } from './services/api.js';
 import { fallbackDashboard } from './services/fallbackData.js';
 
 const tabs = [
@@ -30,19 +28,38 @@ const tabs = [
   { id: 'forecasting', label: 'Forecasting', icon: TrendingUp },
   { id: 'explainability', label: 'Explainability', icon: BrainCircuit },
   { id: 'customer360', label: 'Customer 360', icon: GitBranch },
-  { id: 'geo', label: 'Geo Heatmap', icon: Map },
   { id: 'copilot', label: 'Copilot', icon: Bot }
 ];
 
 function App() {
+  const [isAuthed, setIsAuthed] = useState(Boolean(getAuthToken('dashboard')));
   const [activeTab, setActiveTab] = useState('overview');
   const [data, setData] = useState(fallbackDashboard);
   const [status, setStatus] = useState('Loading live API');
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
+  const [isLoadingIntelligence, setIsLoadingIntelligence] = useState(true);
+  const [isLoadingCustomer360, setIsLoadingCustomer360] = useState(true);
+  const [hasDashboardError, setHasDashboardError] = useState(false);
+  const [hasIntelligenceError, setHasIntelligenceError] = useState(false);
+  const [hasCustomer360Error, setHasCustomer360Error] = useState(false);
+
   const [query, setQuery] = useState('Explain why Northeast revenue is rising this week.');
   const [answer, setAnswer] = useState(fallbackDashboard.copilot.sampleAnswer);
+  const [intelligence, setIntelligence] = useState(null);
+  const [customer360, setCustomer360] = useState(null);
 
   useEffect(() => {
+    if (!isAuthed) return undefined;
     let mounted = true;
+
+    setIsLoadingDashboard(true);
+    setIsLoadingIntelligence(true);
+    setIsLoadingCustomer360(true);
+    setHasDashboardError(false);
+    setHasIntelligenceError(false);
+    setHasCustomer360Error(false);
+    setStatus('Loading live API');
+
     fetchDashboardData()
       .then((payload) => {
         if (!mounted) return;
@@ -51,14 +68,64 @@ function App() {
       })
       .catch(() => {
         if (!mounted) return;
+        setHasDashboardError(true);
         setStatus('Demo data fallback');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsLoadingDashboard(false);
       });
+
+    fetchIntelligenceSnapshot()
+      .then((payload) => {
+        if (mounted) setIntelligence(payload);
+      })
+      .catch(() => {
+        if (mounted) {
+          setHasIntelligenceError(true);
+          setIntelligence(null);
+        }
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsLoadingIntelligence(false);
+      });
+
+    fetchCustomer360()
+      .then((payload) => {
+        if (mounted) setCustomer360(payload);
+      })
+      .catch(() => {
+        if (mounted) {
+          setHasCustomer360Error(true);
+          setCustomer360(null);
+        }
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsLoadingCustomer360(false);
+      });
+
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isAuthed]);
 
-  const selectedCustomer = data.customers[0];
+
+  async function handleLogin(credentials) {
+    await loginUser({ ...credentials, site: 'dashboard' });
+    setIsAuthed(true);
+  }
+
+  function handleLogout() {
+    clearAuthSession('dashboard');
+    setIsAuthed(false);
+  }
+
+  const selectedCustomer = customer360?.profile || intelligence?.customer360?.profile || data.customers[0];
+  const explanationData = intelligence?.explainability || data.explainability;
+  const customerGraph = customer360?.graph || intelligence?.customer360?.graph || data.graph;
+  const customerGraphSource = customer360?.source || intelligence?.customer360?.data_source || 'demo_customer_360_graph';
 
   async function handleCopilotSubmit(event) {
     event.preventDefault();
@@ -81,7 +148,7 @@ function App() {
             <Radar size={24} aria-hidden="true" />
           </div>
           <div>
-            <p className="eyebrow">Realtime AI</p>
+            <p className="eyebrow">Customer ops</p>
             <h1>Customer Intelligence</h1>
           </div>
         </div>
@@ -107,8 +174,8 @@ function App() {
         <div className="guardrail-panel">
           <ShieldCheck size={18} aria-hidden="true" />
           <div>
-            <strong>RBAC enabled</strong>
-            <span>Marketing analyst scope</span>
+            <strong>Secure workspace</strong>
+            <span>Role-based access</span>
           </div>
         </div>
       </aside>
@@ -116,38 +183,109 @@ function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Layer 11 to Layer 10</p>
+            <p className="eyebrow">Live workspace</p>
             <h2>{tabs.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
           <div className="topbar-actions">
             <div className="search-box">
               <Search size={16} aria-hidden="true" />
-              <input aria-label="Search customers or products" placeholder="Search customers, products, regions" />
+              <input aria-label="Search customers or products" placeholder="Search customers or products" />
             </div>
-            <span className="connection-pill">{status}</span>
+            <span className="connection-pill" aria-live="polite">
+              {status}
+            </span>
+
+            {isAuthed && (
+              <button className="icon-action" type="button" onClick={handleLogout} title="Sign out">
+                <LogIn size={17} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </header>
 
-        {activeTab === 'overview' && <Overview data={data} />}
-        {activeTab === 'recommendations' && <Recommendations recommendations={data.recommendations} />}
-        {activeTab === 'forecasting' && <Forecasting forecast={data.forecast} />}
-        {activeTab === 'explainability' && <Explainability shap={data.shap} />}
-        {activeTab === 'customer360' && <Customer360 customer={selectedCustomer} graph={data.graph} />}
-        {activeTab === 'geo' && <GeoHeatmap regions={data.geo} />}
-        {activeTab === 'copilot' && (
-          <Copilot query={query} setQuery={setQuery} answer={answer} onSubmit={handleCopilotSubmit} tools={data.copilot.tools} />
+        {!isAuthed && <DashboardLogin onLogin={handleLogin} />}
+
+        {isAuthed && activeTab === 'overview' && (
+          <Overview data={data} isLoading={isLoadingDashboard} hasError={hasDashboardError} />
         )}
+        {isAuthed && activeTab === 'recommendations' && <Recommendations recommendations={data.recommendations} />}
+        {isAuthed && activeTab === 'forecasting' && <Forecasting forecast={data.forecast} />}
+        {isAuthed && activeTab === 'explainability' && (
+          <Explainability
+            explanation={explanationData}
+            isLoading={isLoadingIntelligence}
+            hasError={hasIntelligenceError}
+          />
+        )}
+        {isAuthed && activeTab === 'customer360' && (
+          <Customer360
+            customer={selectedCustomer}
+            graph={customerGraph}
+            source={customerGraphSource}
+            isLoading={isLoadingCustomer360}
+            hasError={hasCustomer360Error}
+          />
+        )}
+        {isAuthed && activeTab === 'copilot' && (
+          <Copilot query={query} setQuery={setQuery} answer={answer} onSubmit={handleCopilotSubmit} />
+        )}
+
       </section>
     </main>
   );
 }
 
-function Overview({ data }) {
+function DashboardLogin({ onLogin }) {
+  const [email, setEmail] = useState('analyst@example.com');
+  const [password, setPassword] = useState('Analyst123!');
+  const [status, setStatus] = useState('Use the seeded analyst account');
+
+  async function submit(event) {
+    event.preventDefault();
+    setStatus('Signing in...');
+    try {
+      await onLogin({ email, password });
+      setStatus('Signed in');
+    } catch {
+      setStatus('Sign in failed');
+    }
+  }
+
+  return (
+    <section className="auth-panel">
+      <div>
+        <p className="eyebrow">MongoDB RBAC</p>
+        <h3>Internal dashboard access</h3>
+        <p>Sign in with a dashboard role before loading analytics, ML, customer graph, and copilot insights.</p>
+      </div>
+      <form className="auth-form" onSubmit={submit}>
+        <input aria-label="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <input aria-label="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <button type="submit">
+          <LogIn size={18} aria-hidden="true" />
+          Sign in
+        </button>
+        <span>{status}</span>
+      </form>
+    </section>
+  );
+}
+
+function Overview({ data, isLoading, hasError }) {
   return (
     <div className="view-stack">
-      <section className="metric-grid">
+      {(isLoading || hasError) && (
+        <div className="status-banner" role="status" aria-live="polite">
+          <strong>{hasError ? 'Demo data' : 'Loading'}</strong>
+          <span>
+            {hasError ? 'Internal API unavailable — showing demo analytics.' : 'Fetching live dashboard metrics...'}
+          </span>
+        </div>
+      )}
+
+      <section className="metric-grid" aria-busy={isLoading}>
         {data.metrics.map((metric) => (
-          <article className="metric-card" key={metric.label}>
+          <article className={`metric-card ${isLoading ? 'is-skeleton' : ''}`} key={metric.label}>
             <span className="metric-icon">{metric.icon === 'revenue' ? <CircleDollarSign size={18} /> : <Users size={18} />}</span>
             <p>{metric.label}</p>
             <strong>{metric.value}</strong>
@@ -157,7 +295,7 @@ function Overview({ data }) {
       </section>
 
       <section className="analytics-layout">
-        <div className="panel wide">
+        <div className={`panel wide ${isLoading ? 'is-skeleton' : ''}`}>
           <PanelTitle icon={AreaChart} title="Streaming Sales Analytics" />
           <div className="bar-chart" aria-label="Hourly revenue chart">
             {data.revenueSeries.map((item) => (
@@ -168,7 +306,7 @@ function Overview({ data }) {
             ))}
           </div>
         </div>
-        <div className="panel">
+        <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
           <PanelTitle icon={Sparkles} title="Live Signals" />
           <div className="signal-list">
             {data.signals.map((signal) => (
@@ -186,6 +324,7 @@ function Overview({ data }) {
     </div>
   );
 }
+
 
 function Recommendations({ recommendations }) {
   return (
@@ -233,55 +372,110 @@ function Forecasting({ forecast }) {
   );
 }
 
-function Explainability({ shap }) {
+function Explainability({ explanation, isLoading, hasError }) {
   return (
     <section className="explain-layout">
-      <div className="panel">
-        <PanelTitle icon={BrainCircuit} title="SHAP Feature Attribution" />
-        <div className="shap-list">
-          {shap.features.map((feature) => (
-            <div className="shap-row" key={feature.name}>
+      {(isLoading || hasError) && (
+        <div className="status-banner" role="status" aria-live="polite">
+          <strong>{hasError ? 'Demo explainability' : 'Loading'}</strong>
+          <span>
+            {hasError ? 'Internal intelligence API unavailable — showing demo explanations.' : 'Fetching feature attribution...'}
+          </span>
+        </div>
+      )}
+
+      <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
+        <PanelTitle icon={BrainCircuit} title="Feature Attribution" />
+        <div className="attribution-list" aria-busy={isLoading}>
+          {explanation.features.map((feature) => (
+            <div className="attribution-row" key={feature.name}>
               <span>{feature.name}</span>
-              <div className="shap-track">
-                <span className={feature.impact > 0 ? 'positive-bg' : 'negative-bg'} style={{ width: `${Math.abs(feature.impact) * 100}%` }} />
+              <div className="attribution-track">
+                <span
+                  className={feature.impact > 0 ? 'positive-bg' : 'negative-bg'}
+                  style={{ width: `${Math.abs(feature.impact) * 100}%` }}
+                />
               </div>
-              <strong>{feature.impact > 0 ? '+' : ''}{feature.impact.toFixed(2)}</strong>
+              <strong>
+                {feature.impact > 0 ? '+' : ''}
+                {feature.impact.toFixed(2)}
+              </strong>
             </div>
           ))}
         </div>
       </div>
-      <div className="panel">
+      <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
         <PanelTitle icon={MessageSquareText} title="Natural Language Explanation" />
-        <p className="narrative">{shap.explanation}</p>
+        <p className="narrative">{explanation.explanation}</p>
       </div>
     </section>
   );
 }
 
-function Customer360({ customer, graph }) {
+
+function Customer360({ customer, graph, source, isLoading, hasError }) {
+  const relationshipEdges = graph.edges.filter((edge) => edge.source_position && edge.target_position);
   return (
     <section className="customer-layout">
-      <div className="panel profile-panel">
+      {(isLoading || hasError) && (
+        <div className="status-banner" role="status" aria-live="polite">
+          <strong>{hasError ? 'Demo graph' : 'Loading'}</strong>
+          <span>
+            {hasError ? 'Internal customer graph API unavailable — showing demo graph.' : 'Fetching customer graph & profile...'}
+          </span>
+        </div>
+      )}
+
+      <div className={`panel profile-panel ${isLoading ? 'is-skeleton' : ''}`}>
         <PanelTitle icon={Users} title="Customer Profile" />
         <div className="avatar">{customer.initials}</div>
         <h3>{customer.name}</h3>
         <p>{customer.segment}</p>
         <dl>
-          <div><dt>LTV</dt><dd>{customer.ltv}</dd></div>
-          <div><dt>Churn Risk</dt><dd>{customer.churnRisk}</dd></div>
-          <div><dt>Last Event</dt><dd>{customer.lastEvent}</dd></div>
+          <div>
+            <dt>LTV</dt>
+            <dd>{customer.ltv}</dd>
+          </div>
+          <div>
+            <dt>Churn Risk</dt>
+            <dd>{customer.churnRisk}</dd>
+          </div>
+          <div>
+            <dt>Last Event</dt>
+            <dd>{customer.lastEvent}</dd>
+          </div>
         </dl>
+        <span className={source === 'neo4j' ? 'source-pill live' : 'source-pill'}>
+          {source === 'neo4j' ? 'Neo4j connected' : 'Graph fallback'}
+        </span>
       </div>
-      <div className="panel graph-panel">
+      <div className={`panel graph-panel ${isLoading ? 'is-skeleton' : ''}`}>
         <PanelTitle icon={GitBranch} title="Customer 360 Graph" />
-        <div className="graph-canvas" aria-label="Customer graph">
+        <div className="graph-canvas" aria-label="Customer graph" aria-busy={isLoading}>
+          <svg className="graph-lines" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+            {relationshipEdges.map((edge) => (
+              <line
+                key={edge.id}
+                x1={edge.source_position.x}
+                y1={edge.source_position.y}
+                x2={edge.target_position.x}
+                y2={edge.target_position.y}
+              />
+            ))}
+          </svg>
           {graph.nodes.map((node) => (
-            <span key={node.id} className={`graph-node ${node.kind}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
+            <span
+              key={node.id}
+              className={`graph-node ${node.kind}`}
+              style={{ left: `${node.x}%`, top: `${node.y}%` }}
+            >
               {node.label}
             </span>
           ))}
-          {graph.edges.map((edge) => (
-            <span key={edge.id} className={`graph-edge edge-${edge.id}`} />
+        </div>
+        <div className="relationship-list">
+          {graph.edges.slice(0, 6).map((edge) => (
+            <span key={edge.id}>{edge.type || 'RELATED'}</span>
           ))}
         </div>
       </div>
@@ -289,43 +483,12 @@ function Customer360({ customer, graph }) {
   );
 }
 
-function GeoHeatmap({ regions }) {
-  return (
-    <section className="geo-layout">
-      <div className="map-board">
-        {regions.map((region) => (
-          <button
-            type="button"
-            key={region.name}
-            className="region-hotspot"
-            style={{ left: `${region.x}%`, top: `${region.y}%`, '--heat': region.heat }}
-            title={`${region.name}: ${region.revenue}`}
-          >
-            <span>{region.name}</span>
-          </button>
-        ))}
-      </div>
-      <div className="panel">
-        <PanelTitle icon={Route} title="Regional Performance" />
-        <div className="region-list">
-          {regions.map((region) => (
-            <div className="region-row" key={region.name}>
-              <span>{region.name}</span>
-              <strong>{region.revenue}</strong>
-              <small>{region.trend}</small>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
 
-function Copilot({ query, setQuery, answer, onSubmit, tools }) {
+function Copilot({ query, setQuery, answer, onSubmit }) {
   return (
-    <section className="copilot-layout">
+    <section className="copilot-layout single">
       <div className="panel copilot-panel">
-        <PanelTitle icon={WandSparkles} title="Controlled LLM Orchestration" />
+        <PanelTitle icon={WandSparkles} title="Insight Copilot" />
         <form onSubmit={onSubmit} className="copilot-form">
           <textarea value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Ask copilot" />
           <button type="submit">
@@ -335,21 +498,6 @@ function Copilot({ query, setQuery, answer, onSubmit, tools }) {
         </form>
         <div className="answer-box">
           <p>{answer}</p>
-        </div>
-      </div>
-      <div className="panel">
-        <PanelTitle icon={ShieldCheck} title="Tools and Observability" />
-        <div className="tool-list">
-          {tools.map((tool) => (
-            <div className="tool-row" key={tool}>
-              <ChevronRight size={16} aria-hidden="true" />
-              <span>{tool}</span>
-            </div>
-          ))}
-          <div className="trace-row">
-            <strong>LangSmith</strong>
-            <span>Tracing enabled by backend environment</span>
-          </div>
         </div>
       </div>
     </section>
@@ -366,4 +514,3 @@ function PanelTitle({ icon: Icon, title }) {
 }
 
 createRoot(document.getElementById('root')).render(<App />);
-
