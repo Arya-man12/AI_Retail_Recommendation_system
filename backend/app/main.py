@@ -4,9 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import auth, copilot, dashboard, ecommerce, features, graph, intelligence, ml, processing, streaming, vectors
 from app.services.auth_service import auth_status, seed_bootstrap_users
-from app.services.ecommerce_service import seed_product_catalog
+from app.services.ecommerce_service import seed_ecommerce_demo_data
 from app.services.feature_store_service import feature_store_status
 from app.services.graph_service import graph_status, seed_demo_graph_if_configured
+from app.services.mongo_demo_service import seed_dashboard_demo_data
+from app.services.retail_intelligence_service import seed_review_demo_data
 from app.services.streaming_service import start_subscriber_if_enabled, stop_subscriber
 from app.services.vector_service import VectorServiceError, vector_store_status
 
@@ -45,13 +47,13 @@ def ready() -> dict:
     dependencies = {
         "auth": auth_status(),
         "redis": feature_store_status(),
-        "neo4j": graph_status(),
+        "customer_graph": graph_status(),
         "qdrant": vector,
     }
     ready_status = all(
         dependency.get("connected", False)
         for dependency in dependencies.values()
-        if dependency.get("provider") in {"mongodb", "redis", "neo4j", "qdrant"}
+        if dependency.get("provider") in {"mongodb", "redis", "mongodb_graph", "qdrant"}
     )
     return {
         "status": "ready" if ready_status else "degraded",
@@ -63,7 +65,9 @@ def ready() -> dict:
 @app.on_event("startup")
 def startup() -> None:
     seed_bootstrap_users()
-    seed_product_catalog()
+    seed_dashboard_demo_data()
+    seed_ecommerce_demo_data()
+    seed_review_demo_data()
     seed_demo_graph_if_configured()
     start_subscriber_if_enabled()
 

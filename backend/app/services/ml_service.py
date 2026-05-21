@@ -55,6 +55,30 @@ def get_model_registry_status() -> dict:
             "family": "segmentation",
             "framework": "scikit-learn" if settings.ml_segmentation_model == "kmeans" else "rfm_rules",
         },
+        {
+            "name": "rfm_churn_risk",
+            "stage": "configured",
+            "family": "retention",
+            "framework": "logistic_rules",
+        },
+        {
+            "name": "basket_affinity_rules",
+            "stage": "configured",
+            "family": "basket_analysis",
+            "framework": "co_occurrence_lift",
+        },
+        {
+            "name": "product_demand_moving_average",
+            "stage": "configured",
+            "family": "demand_forecasting",
+            "framework": "moving_average",
+        },
+        {
+            "name": "lexicon_review_sentiment",
+            "stage": "configured",
+            "family": "review_intelligence",
+            "framework": "sentiment_lexicon",
+        },
     ]
     status["configuration"] = {
         "forecast_model": settings.ml_forecast_model,
@@ -63,6 +87,123 @@ def get_model_registry_status() -> dict:
         "kmeans_clusters": settings.ml_kmeans_clusters,
     }
     return status
+
+
+def predict_churn_risk(features: dict) -> dict:
+    recency_days = float(features.get("recency_days", 30))
+    frequency = float(features.get("frequency", 1))
+    monetary_value = float(features.get("monetary_value", 0))
+    discount_sensitivity = float(features.get("discount_sensitivity", 0.35))
+    engagement_depth = float(features.get("engagement_depth", features.get("bundle_affinity", 0.5)))
+
+    recency_component = min(recency_days / 120, 1) * 0.42
+    frequency_component = max(0, 1 - min(frequency / 12, 1)) * 0.24
+    value_component = max(0, 1 - min(monetary_value / 20000, 1)) * 0.12
+    discount_component = min(discount_sensitivity, 1) * 0.14
+    engagement_component = max(0, 1 - min(engagement_depth, 1)) * 0.08
+    risk = recency_component + frequency_component + value_component + discount_component + engagement_component
+    probability = round(max(0.02, min(risk, 0.96)), 3)
+
+    if probability >= 0.65:
+        band = "high"
+        action = "Trigger win-back offer and human review."
+    elif probability >= 0.35:
+        band = "medium"
+        action = "Send personalized retention offer."
+    else:
+        band = "low"
+        action = "Maintain normal personalized recommendations."
+
+    with tracked_run("rfm_churn_risk_prediction", {"model_family": "retention"}):
+        mlflow.log_metric("recency_days", recency_days)
+        mlflow.log_metric("frequency", frequency)
+        mlflow.log_metric("monetary_value", monetary_value)
+        mlflow.log_metric("churn_probability", probability)
+
+    return {
+        "model": "rfm_churn_risk",
+        "probability": probability,
+        "percent": round(probability * 100, 1),
+        "risk_band": band,
+        "recommended_action": action,
+        "features": {
+            "recency_days": recency_days,
+            "frequency": frequency,
+            "monetary_value": monetary_value,
+            "discount_sensitivity": discount_sensitivity,
+            "engagement_depth": engagement_depth,
+        },
+        "drivers": [
+            {"feature": "recency_days", "contribution": round(recency_component, 3)},
+            {"feature": "frequency", "contribution": round(frequency_component, 3)},
+            {"feature": "monetary_value", "contribution": round(value_component, 3)},
+            {"feature": "discount_sensitivity", "contribution": round(discount_component, 3)},
+            {"feature": "engagement_depth", "contribution": round(engagement_component, 3)},
+        ],
+    }
+
+
+def forecast_product_demand(history: list[dict], periods: int = 7) -> dict:
+    if not history:
+        return {
+            "model": "product_demand_moving_average",
+            "forecast": [],
+            "method": "no history",
+        }
+
+    quantities = [max(0, int(item.get("quantity", 0))) for item in history]
+    window = quantities[-7:] or quantities
+    daily_average = mean(window)
+    trend = mean([current - previous for previous, current in zip(window, window[1:])]) if len(window) > 1 else 0
+    forecast = []
+    for day in range(1, periods + 1):
+        forecast.append(
+            {
+                "period": day,
+                "predicted_units": round(max(0, daily_average + (trend * day)), 2),
+            }
+        )
+
+    with tracked_run("product_demand_forecast", {"model_family": "demand_forecasting"}):
+        mlflow.log_metric("history_points", len(history))
+        mlflow.log_metric("daily_average_units", daily_average)
+        mlflow.log_metric("trend_units", trend)
+
+    return {
+        "model": "product_demand_moving_average",
+        "history_points": len(history),
+        "daily_average_units": round(daily_average, 2),
+        "trend_units": round(trend, 2),
+        "forecast": forecast,
+    }
+
+
+def score_review_sentiment(text: str) -> dict:
+    positive = {
+        "great", "love", "excellent", "fast", "easy", "useful", "quality", "perfect", "recommend", "happy",
+    }
+    negative = {
+        "bad", "slow", "broken", "poor", "return", "expensive", "late", "hard", "issue", "problem",
+    }
+    words = [word.strip(".,!?;:()[]{}\"'").lower() for word in text.split()]
+    positive_hits = [word for word in words if word in positive]
+    negative_hits = [word for word in words if word in negative]
+    raw = len(positive_hits) - len(negative_hits)
+    score = round(max(-1, min(1, raw / max(len(words) ** 0.5, 1))), 3)
+    label = "positive" if score > 0.12 else "negative" if score < -0.12 else "neutral"
+
+    with tracked_run("review_sentiment_scoring", {"model_family": "review_intelligence"}):
+        mlflow.log_metric("sentiment_score", score)
+        mlflow.log_metric("positive_hits", len(positive_hits))
+        mlflow.log_metric("negative_hits", len(negative_hits))
+
+    return {
+        "model": "lexicon_review_sentiment",
+        "score": score,
+        "label": label,
+        "positive_terms": positive_hits,
+        "negative_terms": negative_hits,
+    }
 
 
 def forecast_revenue(recent_revenue: list[float]) -> dict:

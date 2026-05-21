@@ -5,8 +5,9 @@ from uuid import uuid4
 from app.config import settings
 from app.services.emqx_service import publish_event
 from app.services.auth_service import get_mongo_client
+from app.services.graph_service import sync_purchase_to_graph
 from app.services.insight_engine import process_event
-from app.services.ml_service import recommend_products
+from app.services.ml_service import predict_churn_risk, recommend_products
 
 
 SHOP_PRODUCTS = [
@@ -140,6 +141,10 @@ SHOP_PRODUCTS = [
     },
 ]
 
+ORDER_FALLBACK: list[dict] = []
+
+DEMO_ORDER_IDS = ("demo-ord-hydration", "demo-ord-air", "demo-ord-power")
+
 
 def list_products() -> dict:
     products, source = _products_from_mongo()
@@ -165,7 +170,6 @@ def place_order(customer_id: str, product_id: str, quantity: int) -> dict:
 
     ecommerce_publish = publish_event(settings.emqx_ecommerce_topic, event)
     purchase_publish = publish_event(settings.emqx_purchase_topic, event)
-    mongo_write = _store_order(event, product)
     local_insight = None
     if settings.enable_local_event_mirror:
         local_insight = process_event(event, source="local_dev_shop")
@@ -177,6 +181,33 @@ def place_order(customer_id: str, product_id: str, quantity: int) -> dict:
     filtered_recommendations = [
         item for item in recommendations["recommendations"] if item["product"] != product["name"]
     ][:3]
+    emqx_status = {
+        "ecommerce": ecommerce_publish,
+        "purchase": purchase_publish,
+    }
+    insight_status = {
+        "local_mirror_enabled": settings.enable_local_event_mirror,
+        "local_result": local_insight,
+    }
+    churn_prediction = predict_churn_risk(
+        {
+            "recency_days": 0,
+            "frequency": 1,
+            "monetary_value": event["revenue"],
+            "discount_sensitivity": 0.3,
+            "engagement_depth": 0.35,
+        }
+    )
+    graph_sync = sync_purchase_to_graph(event, product, churn=churn_prediction)
+    mongo_write = _store_order(
+        event=event,
+        product=product,
+        recommendations=filtered_recommendations,
+        emqx_status=emqx_status,
+        insight_status=insight_status,
+        graph_status=graph_sync,
+        churn_prediction=churn_prediction,
+    )
 
     return {
         "order": {
@@ -187,16 +218,38 @@ def place_order(customer_id: str, product_id: str, quantity: int) -> dict:
             "total": event["revenue"],
         },
         "recommendations": filtered_recommendations,
-        "emqx": {
-            "ecommerce": ecommerce_publish,
-            "purchase": purchase_publish,
-        },
+        "emqx": emqx_status,
         "mongodb": mongo_write,
-        "insight_engine": {
-            "local_mirror_enabled": settings.enable_local_event_mirror,
-            "local_result": local_insight,
-        },
+        "customer_graph": graph_sync,
+        "churn": churn_prediction,
+        "insight_engine": insight_status,
     }
+
+
+def list_customer_orders(customer_id: str) -> dict:
+    try:
+        db = get_mongo_client()[settings.mongodb_database]
+        orders = list(
+            db.orders.find(
+                {"customer_id": customer_id},
+                {"_id": False},
+            ).sort("created_at", -1)
+        )
+        return {
+            "orders": orders,
+            "count": len(orders),
+            "customer_id": customer_id,
+            "source": "mongodb",
+        }
+    except Exception as exc:
+        orders = [order for order in ORDER_FALLBACK if order["customer_id"] == customer_id]
+        return {
+            "orders": orders,
+            "count": len(orders),
+            "customer_id": customer_id,
+            "source": "in_memory_fallback",
+            "warning": str(exc),
+        }
 
 
 def seed_product_catalog() -> dict:
@@ -234,6 +287,88 @@ def seed_product_catalog() -> dict:
     }
 
 
+def seed_ecommerce_demo_data() -> dict:
+    products = seed_product_catalog()
+    orders = seed_demo_orders()
+    return {
+        "products": products,
+        "orders": orders,
+    }
+
+
+def seed_demo_orders() -> dict:
+    now = datetime.now(UTC)
+    demo_specs = [
+        ("demo-ord-hydration", "customer-demo-001", "sku-hydration", 1),
+        ("demo-ord-air", "customer-demo-001", "sku-air", 1),
+        ("demo-ord-power", "cust-urban-commuter", "sku-power", 2),
+    ]
+    demo_orders = []
+    for order_id, customer_id, product_id, quantity in demo_specs:
+        product = _find_product(product_id)
+        event = {
+            "event_id": f"demo-evt-{product_id}",
+            "event_type": "purchase",
+            "order_id": order_id,
+            "customer_id": customer_id,
+            "product_id": product["id"],
+            "product_name": product["name"],
+            "category": product["category"],
+            "quantity": quantity,
+            "price": product["price"],
+            "revenue": round(product["price"] * quantity, 2),
+            "event_time": now.isoformat(),
+        }
+        demo_orders.append(
+            {
+                **event,
+                "product": product,
+                "recommendations": recommend_products(
+                    customer_id=customer_id,
+                    segment="High-LTV wellness buyer" if product["category"] == "wellness" else "Active shopper",
+                    recent_categories=[product["category"]],
+                )["recommendations"],
+                "pipeline": {
+                    "seeded": True,
+                    "source": "startup_demo_seed",
+                },
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    try:
+        db = get_mongo_client()[settings.mongodb_database]
+        db.orders.create_index("order_id", unique=True)
+        db.ecommerce_events.create_index("event_id", unique=True)
+        for order in demo_orders:
+            db.orders.update_one(
+                {"order_id": order["order_id"]},
+                {"$setOnInsert": order, "$set": {"updated_at": now}},
+                upsert=True,
+            )
+            db.ecommerce_events.update_one(
+                {"event_id": order["event_id"]},
+                {"$setOnInsert": order, "$set": {"updated_at": now}},
+                upsert=True,
+            )
+    except Exception as exc:
+        return {
+            "provider": "mongodb",
+            "seeded": False,
+            "collection": "orders",
+            "error": str(exc),
+        }
+
+    return {
+        "provider": "mongodb",
+        "seeded": True,
+        "collection": "orders",
+        "count": len(demo_orders),
+        "order_ids": list(DEMO_ORDER_IDS),
+    }
+
+
 @lru_cache(maxsize=1)
 def _ensure_product_catalog_seeded() -> bool:
     return seed_product_catalog().get("seeded", False)
@@ -263,29 +398,107 @@ def _products_from_mongo() -> tuple[list[dict], str]:
     return SHOP_PRODUCTS, "in_memory_catalog"
 
 
-def _store_order(event: dict, product: dict) -> dict:
+def _store_order(
+    event: dict,
+    product: dict,
+    recommendations: list[dict],
+    emqx_status: dict,
+    insight_status: dict,
+    graph_status: dict,
+    churn_prediction: dict,
+) -> dict:
+    now = datetime.now(UTC)
     order = {
         **event,
         "product": product,
-        "created_at": datetime.now(UTC),
+        "recommendations": recommendations,
+        "pipeline": {
+            "emqx": emqx_status,
+            "insight_engine": insight_status,
+            "recommendations": recommendations,
+            "customer_graph": graph_status,
+            "churn": churn_prediction,
+        },
+        "created_at": now,
+        "updated_at": now,
     }
     try:
         db = get_mongo_client()[settings.mongodb_database]
         db.orders.create_index("order_id", unique=True)
+        db.ecommerce_events.create_index("event_id", unique=True)
         db.orders.insert_one(order)
+        db.ecommerce_events.insert_one(
+            {
+                **event,
+                "pipeline": order["pipeline"],
+                "created_at": now,
+            }
+        )
+        feature_update = _update_customer_feature_document(db, event["customer_id"])
     except Exception as exc:
+        _store_order_fallback(order)
         return {
             "stored": False,
             "database": settings.mongodb_database,
-            "collection": "orders",
+            "collections": ["orders", "ecommerce_events"],
             "error": str(exc),
+            "fallback": "in_memory_orders",
         }
     return {
         "stored": True,
         "database": settings.mongodb_database,
-        "collection": "orders",
+        "collections": ["orders", "ecommerce_events"],
+        "feature_update": feature_update,
     }
 
 
 def _products_collection():
     return get_mongo_client()[settings.mongodb_database].products
+
+
+def _store_order_fallback(order: dict) -> None:
+    ORDER_FALLBACK.insert(0, order)
+    del ORDER_FALLBACK[50:]
+
+
+def _update_customer_feature_document(db, customer_id: str) -> dict:
+    orders = list(db.orders.find({"customer_id": customer_id}, {"_id": False}))
+    if not orders:
+        return {"updated": False, "reason": "no_orders"}
+    revenue = sum(float(order.get("revenue", 0)) for order in orders)
+    categories = {}
+    latest = None
+    for order in orders:
+        category = order.get("category")
+        if category:
+            categories[category] = categories.get(category, 0) + 1
+        created_at = order.get("created_at")
+        created_at = _aware_datetime(created_at)
+        if created_at and (latest is None or created_at > latest):
+            latest = created_at
+    recency_days = max(0, (datetime.now(UTC) - latest).days) if latest else 90
+    preferred_category = max(categories, key=categories.get) if categories else "unknown"
+    db.customer_features.update_one(
+        {"customer_id": customer_id},
+        {
+            "$set": {
+                "customer_id": customer_id,
+                "features": {
+                    "recency_days": recency_days,
+                    "frequency": len(orders),
+                    "monetary_value": round(revenue, 2),
+                    "preferred_category": preferred_category,
+                    "engagement_depth": min(len(orders) / 12, 1),
+                },
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        upsert=True,
+    )
+    return {"updated": True, "collection": "customer_features"}
+
+
+def _aware_datetime(value) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)

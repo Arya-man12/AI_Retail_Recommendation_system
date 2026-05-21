@@ -26,6 +26,7 @@ const tabs = [
   { id: 'overview', label: 'Overview', icon: Activity },
   { id: 'recommendations', label: 'Recommendations', icon: PackageCheck },
   { id: 'forecasting', label: 'Forecasting', icon: TrendingUp },
+  { id: 'retail-ai', label: 'Retail AI', icon: WandSparkles },
   { id: 'explainability', label: 'Explainability', icon: BrainCircuit },
   { id: 'customer360', label: 'Customer 360', icon: GitBranch },
   { id: 'copilot', label: 'Copilot', icon: Bot }
@@ -210,6 +211,9 @@ function App() {
         )}
         {isAuthed && activeTab === 'recommendations' && <Recommendations recommendations={data.recommendations} />}
         {isAuthed && activeTab === 'forecasting' && <Forecasting forecast={data.forecast} />}
+        {isAuthed && activeTab === 'retail-ai' && (
+          <RetailAI intelligence={intelligence} isLoading={isLoadingIntelligence} hasError={hasIntelligenceError} />
+        )}
         {isAuthed && activeTab === 'explainability' && (
           <Explainability
             explanation={explanationData}
@@ -372,6 +376,75 @@ function Forecasting({ forecast }) {
   );
 }
 
+function RetailAI({ intelligence, isLoading, hasError }) {
+  const churn = intelligence?.churn?.churn;
+  const behavior = intelligence?.churn?.behavior;
+  const basketPairs = intelligence?.basket_analysis?.pairs || [];
+  const demand = intelligence?.demand_forecast?.forecasts || [];
+  const reviews = intelligence?.review_intelligence;
+
+  return (
+    <section className="retail-ai-grid">
+      {(isLoading || hasError) && (
+        <div className="status-banner" role="status" aria-live="polite">
+          <strong>{hasError ? 'Retail AI fallback' : 'Loading'}</strong>
+          <span>{hasError ? 'Internal intelligence API unavailable.' : 'Fetching retail ML outputs...'}</span>
+        </div>
+      )}
+
+      <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
+        <PanelTitle icon={ShieldCheck} title="Churn Risk" />
+        <div className="retail-kpi">
+          <strong>{churn ? `${churn.percent}%` : 'N/A'}</strong>
+          <span>{churn ? `${churn.risk_band} risk` : 'No churn output yet'}</span>
+        </div>
+        <p className="narrative">{churn?.recommended_action || 'Connect transaction features to score churn.'}</p>
+      </div>
+
+      <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
+        <PanelTitle icon={Users} title="Behavior" />
+        <div className="compact-list">
+          <span>Orders: <strong>{behavior?.orders ?? 0}</strong></span>
+          <span>Views: <strong>{behavior?.browse_events ?? 0}</strong></span>
+          <span>Segment: <strong>{behavior?.behavior_segment || 'N/A'}</strong></span>
+        </div>
+      </div>
+
+      <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
+        <PanelTitle icon={PackageCheck} title="Basket Analysis" />
+        <div className="compact-list">
+          {basketPairs.length ? basketPairs.slice(0, 4).map((pair) => (
+            <span key={pair.product_ids.join('-')}>
+              {pair.products.join(' + ')} <strong>{pair.lift}x lift</strong>
+            </span>
+          )) : <span>No product pairs yet</span>}
+        </div>
+      </div>
+
+      <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
+        <PanelTitle icon={TrendingUp} title="Product Demand" />
+        <div className="compact-list">
+          {demand.length ? demand.slice(0, 4).map((item) => (
+            <span key={item.product_id}>
+              {item.product} <strong>{item.daily_average_units} avg/day</strong>
+            </span>
+          )) : <span>No demand history yet</span>}
+        </div>
+      </div>
+
+      <div className={`panel wide ${isLoading ? 'is-skeleton' : ''}`}>
+        <PanelTitle icon={MessageSquareText} title="Review Intelligence" />
+        <div className="compact-list horizontal">
+          <span>Reviews: <strong>{reviews?.review_count ?? 0}</strong></span>
+          <span>Positive: <strong>{Math.round((reviews?.sentiment_mix?.positive || 0) * 100)}%</strong></span>
+          <span>Neutral: <strong>{Math.round((reviews?.sentiment_mix?.neutral || 0) * 100)}%</strong></span>
+          <span>Negative: <strong>{Math.round((reviews?.sentiment_mix?.negative || 0) * 100)}%</strong></span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Explainability({ explanation, isLoading, hasError }) {
   return (
     <section className="explain-layout">
@@ -445,8 +518,8 @@ function Customer360({ customer, graph, source, isLoading, hasError }) {
             <dd>{customer.lastEvent}</dd>
           </div>
         </dl>
-        <span className={source === 'neo4j' ? 'source-pill live' : 'source-pill'}>
-          {source === 'neo4j' ? 'Neo4j connected' : 'Graph fallback'}
+        <span className={source === 'mongodb_graph' ? 'source-pill live' : 'source-pill'}>
+          {source === 'mongodb_graph' ? 'MongoDB graph' : 'Graph fallback'}
         </span>
       </div>
       <div className={`panel graph-panel ${isLoading ? 'is-skeleton' : ''}`}>

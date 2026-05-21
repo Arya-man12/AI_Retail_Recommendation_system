@@ -1,17 +1,12 @@
-# UI Improvement TODO
+# TODO
 
-- [x] Update Internal Dashboard UI: add loading/error banners and skeleton-like placeholders
+- [x] Add backend endpoint to fetch orders by customer
+- [x] Add frontend API helper to fetch orders
+- [x] Add “My orders” panel UI to customer shop
+- [x] Refresh orders after placing an order
+- [x] Add basic styling for orders panel
 
-- [x] Internal Dashboard accessibility: add aria-live for status + focus-visible styles
+- [x] Run quick sanity check (build / start) to ensure no JS/py errors
 
-- [x] Improve dashboard interactivity: hover/active transitions for nav/cards/buttons
-
-- [x] Update Customer Shop UI: add micro-states for placing order + loading recommendations
-
-- [x] Shop accessibility: add aria-live for orderStatus + focus-visible styles
-
-- [x] Consistency pass: align key colors/radii/shadows across both CSS files
-
-- [x] Build frontend to verify: `cd frontend && npm run build`
 
 

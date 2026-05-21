@@ -112,7 +112,7 @@ def dashboard_payload() -> dict:
                 "Forecast tool",
                 "Recommendation tool",
                 "Feature attribution tool",
-                "Neo4j graph tool",
+                "Customer 360 graph tool",
                 "Geo analytics tool",
             ],
             "sampleAnswer": "Northeast revenue is rising because recent premium bundle views, regional demand, and campaign engagement are all above baseline. The recommendation tool would prioritize hydration and air quality bundles for this region.",

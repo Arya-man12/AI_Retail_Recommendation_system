@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.config import settings
+from app.services.auth_service import get_mongo_client
 
 
 DEMO_FEATURES = {
@@ -107,6 +108,10 @@ def set_customer_features(customer_id: str, features: dict[str, Any]) -> dict:
 
 
 def get_customer_features(customer_id: str) -> dict:
+    mongo_payload = _get_mongo_customer_features(customer_id)
+    if mongo_payload:
+        return mongo_payload
+
     try:
         client = get_redis_client()
         raw = client.get(feature_key(customer_id))
@@ -136,6 +141,23 @@ def get_customer_features(customer_id: str) -> dict:
         "customer_id": customer_id,
         "features": features,
         "source": "redis",
+    }
+
+
+def _get_mongo_customer_features(customer_id: str) -> dict | None:
+    try:
+        db = get_mongo_client()[settings.mongodb_database]
+        document = db.customer_features.find_one({"customer_id": customer_id}, {"_id": False})
+    except Exception:
+        return None
+
+    if not document:
+        return None
+
+    return {
+        "customer_id": customer_id,
+        "features": document.get("features") or {},
+        "source": "mongodb",
     }
 
 

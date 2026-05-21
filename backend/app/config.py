@@ -1,4 +1,9 @@
+import os
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
@@ -40,11 +45,6 @@ class Settings(BaseSettings):
     seed_shop_email: str = "shopper@example.com"
     seed_shop_password: str = "Shopper123!"
     seed_shop_role: str = "customer"
-    neo4j_uri: str = "bolt://localhost:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str | None = None
-    neo4j_database: str = "neo4j"
-    neo4j_connection_timeout_seconds: float = 5.0
     ml_recommender_model: str = "content_affinity"
     ml_segmentation_model: str = "kmeans"
     ml_forecast_model: str = "moving_average"
@@ -67,7 +67,18 @@ class Settings(BaseSettings):
     enable_local_event_mirror: bool = True
     emqx_connect_timeout_seconds: float = 5.0
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8")
 
 
 settings = Settings()
+
+if settings.langsmith_api_key:
+    os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+    os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
+os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
+os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+if settings.langsmith_tracing:
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"

@@ -95,7 +95,7 @@ export const fallbackDashboard = {
     { name: 'South', revenue: '$94k', trend: '+8.9%', heat: 0.58, x: 58, y: 70 }
   ],
   copilot: {
-    tools: ['Forecast tool', 'Recommendation tool', 'Feature attribution tool', 'Neo4j graph tool', 'Geo analytics tool'],
+    tools: ['Forecast tool', 'Recommendation tool', 'Feature attribution tool', 'Customer 360 graph tool', 'Geo analytics tool'],
     sampleAnswer: 'Northeast revenue is rising because recent premium bundle views, regional demand, and campaign engagement are all above baseline. The recommendation tool would prioritize hydration and air quality bundles for this region.'
   }
 };

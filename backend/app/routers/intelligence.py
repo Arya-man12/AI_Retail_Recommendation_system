@@ -9,6 +9,13 @@ from app.services.intelligence_service import (
     layer_status,
     recommendation_insight,
 )
+from app.services.retail_intelligence_service import (
+    basket_analysis,
+    churn_risk,
+    customer_behavior,
+    demand_forecast,
+    review_intelligence,
+)
 
 router = APIRouter()
 
@@ -41,3 +48,28 @@ def explainability(_: dict = Depends(require_permissions({"intelligence:read"}))
 @router.get("/recommendation-insight")
 def recommendations(_: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
     return recommendation_insight()
+
+
+@router.get("/customers/{customer_id}/behavior")
+def behavior(customer_id: str, _: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
+    return customer_behavior(customer_id)
+
+
+@router.get("/customers/{customer_id}/churn-risk")
+def churn(customer_id: str, _: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
+    return churn_risk(customer_id)
+
+
+@router.get("/basket-analysis")
+def baskets(_: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
+    return basket_analysis()
+
+
+@router.get("/demand-forecast")
+def demand(product_id: str | None = None, periods: int = 7, _: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
+    return demand_forecast(product_id=product_id, periods=periods)
+
+
+@router.get("/review-intelligence")
+def reviews(product_id: str | None = None, _: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
+    return review_intelligence(product_id=product_id)

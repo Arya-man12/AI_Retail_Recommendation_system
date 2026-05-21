@@ -2,6 +2,7 @@ from app.services.demo_data import dashboard_payload
 from app.services.feature_store_service import feature_store_status, get_customer_features
 from app.services.graph_service import customer_graph, graph_status
 from app.services.ml_service import forecast_revenue, recommend_products, segment_customer
+from app.services.retail_intelligence_service import basket_analysis, churn_risk, demand_forecast, review_intelligence
 
 
 def customer_360(customer_id: str = "cust-maya-chen") -> dict:
@@ -59,8 +60,8 @@ def layer_status() -> dict:
             {
                 "id": 4,
                 "name": "Geo + Feature + Customer 360 Layer",
-                "status": "partial",
-                "details": "Redis feature store and Neo4j Customer 360 graph adapters are configured with demo fallbacks.",
+                "status": "implemented",
+                "details": "MongoDB-backed Customer 360 graph, feature data, and geo enrichment are exposed through intelligence APIs.",
             },
             {
                 "id": 5,
@@ -113,6 +114,10 @@ def intelligence_snapshot() -> dict:
         "features": feature_payload,
         "forecast": forecast,
         "segment": segment,
+        "churn": churn_risk("cust-maya-chen"),
+        "basket_analysis": basket_analysis(),
+        "demand_forecast": demand_forecast(periods=7),
+        "review_intelligence": review_intelligence(),
         "recommendation": recommendation_insight(),
         "explainability": feature_explanation(),
         "customer360": customer_360(),

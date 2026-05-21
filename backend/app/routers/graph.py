@@ -18,7 +18,7 @@ def seed(_: dict = Depends(require_permissions({"graph:write"}))) -> dict:
     except GraphServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Unable to seed Neo4j graph: {exc}") from exc
+        raise HTTPException(status_code=503, detail=f"Unable to seed MongoDB graph: {exc}") from exc
 
 
 @router.get("/customers/{customer_id}")

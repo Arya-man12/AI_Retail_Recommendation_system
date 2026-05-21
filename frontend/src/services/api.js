@@ -119,3 +119,19 @@ export async function placeShopOrder({ customerId, productId, quantity }) {
 
   return response.json();
 }
+
+export async function fetchShopOrders({ customerId }) {
+  const url = new URL(`${API_BASE_URL}/api/ecommerce/orders`);
+  if (customerId) url.searchParams.set('customer_id', customerId);
+
+  const response = await fetch(url.toString(), {
+    headers: authHeaders('shop')
+  });
+
+  if (!response.ok) {
+    throw new Error('Unable to load orders');
+  }
+
+  return response.json();
+}
+

@@ -49,7 +49,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-Create `backend/.env` from `backend/.env.example` to enable LangSmith tracing.
+Configure `backend/.env` with your Atlas, LangSmith, OpenRouter, and EMQX credentials.
 
 Useful backend endpoints:
 
@@ -91,21 +91,12 @@ The internal dashboard signs in as a dashboard user and sends a bearer token to 
 
 ## Cloud Databases
 
-This project is configured to use MongoDB Atlas and Neo4j Aura/cloud from `backend/.env`. Docker Compose no longer overrides `MONGODB_URI` or `NEO4J_URI`, so the backend container will honor your cloud connection strings.
+This project is configured to use MongoDB Atlas from `backend/.env`. Customer 360 graph data is derived from MongoDB transaction, browse, feature, and review collections.
 
 Use these URI forms:
 
 ```env
-MONGODB_URI=mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/?retryWrites=true&w=majority
-NEO4J_URI=neo4j+s://YOUR-AURA-HOST.databases.neo4j.io
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your-aura-password
-```
-
-Local MongoDB and Neo4j containers are still available only when explicitly requested:
-
-```bash
-docker compose --profile local-databases up
+MONGODB_URI=mongodb+srv://USER:PASSWORD@YOUR-ATLAS-HOST.mongodb.net/?retryWrites=true&w=majority
 ```
 
 ## Ecommerce Demo

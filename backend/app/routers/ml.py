@@ -5,8 +5,11 @@ from app.security import require_permissions
 from app.services.ml_service import (
     forecast_revenue,
     forecast_revenue_with_prophet,
+    forecast_product_demand,
     get_model_registry_status,
+    predict_churn_risk,
     recommend_products,
+    score_review_sentiment,
     segment_customer,
 )
 from app.services.feature_store_service import get_customer_features
@@ -39,6 +42,28 @@ class SegmentationRequest(BaseModel):
     recency_days: int
     frequency: int
     monetary_value: float
+
+
+class ChurnRequest(BaseModel):
+    recency_days: float = 30
+    frequency: float = 1
+    monetary_value: float = 0
+    discount_sensitivity: float = 0.35
+    engagement_depth: float = 0.5
+
+
+class ProductDemandPoint(BaseModel):
+    date: str
+    quantity: int
+
+
+class ProductDemandRequest(BaseModel):
+    history: list[ProductDemandPoint] = Field(min_length=1, max_length=365)
+    periods: int = Field(default=7, ge=1, le=90)
+
+
+class ReviewSentimentRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 @router.get("/registry")
@@ -81,6 +106,24 @@ def segments(payload: SegmentationRequest, _: dict = Depends(require_permissions
         frequency=payload.frequency,
         monetary_value=payload.monetary_value,
     )
+
+
+@router.post("/churn-risk")
+def churn_risk(payload: ChurnRequest, _: dict = Depends(require_permissions({"ml:read"}))) -> dict:
+    return predict_churn_risk(payload.model_dump())
+
+
+@router.post("/product-demand")
+def product_demand(payload: ProductDemandRequest, _: dict = Depends(require_permissions({"ml:read"}))) -> dict:
+    return forecast_product_demand(
+        history=[point.model_dump() for point in payload.history],
+        periods=payload.periods,
+    )
+
+
+@router.post("/review-sentiment")
+def review_sentiment(payload: ReviewSentimentRequest, _: dict = Depends(require_permissions({"ml:read"}))) -> dict:
+    return score_review_sentiment(payload.text)
 
 
 @router.post("/segments/from-features/{customer_id}")

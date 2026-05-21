@@ -6,12 +6,36 @@ from app.services.intelligence_service import customer_360, feature_explanation
 from app.services.ml_service import forecast_revenue, recommend_products
 from app.services.openrouter_service import OpenRouterError, complete_with_openrouter
 from app.services.policy_guardrails import evaluate_prompt
+from app.services.retail_intelligence_service import basket_analysis, churn_risk, customer_behavior, demand_forecast, review_intelligence
 from app.services.spark_processing import clean_events, sample_raw_events, spark_status
 
 
 ALLOWED_TOOLS_BY_ROLE = {
-    "marketing_analyst": ["forecast", "recommendation", "explainability", "features", "processing"],
-    "admin": ["forecast", "recommendation", "explainability", "features", "customer360", "processing"],
+    "marketing_analyst": [
+        "forecast",
+        "recommendation",
+        "explainability",
+        "features",
+        "behavior",
+        "churn",
+        "basket",
+        "demand",
+        "reviews",
+        "processing",
+    ],
+    "admin": [
+        "forecast",
+        "recommendation",
+        "explainability",
+        "features",
+        "behavior",
+        "churn",
+        "basket",
+        "demand",
+        "reviews",
+        "customer360",
+        "processing",
+    ],
 }
 
 TOOL_ALIASES = {
@@ -19,8 +43,13 @@ TOOL_ALIASES = {
     "recommendation": ("recommend", "product", "bundle", "offer"),
     "explainability": ("why", "explain", "driver", "attribution", "influence"),
     "features": ("feature", "redis", "rfm", "recency", "frequency", "monetary"),
+    "behavior": ("behaviour", "behavior", "buying pattern", "preferred categor", "purchase frequency"),
+    "churn": ("churn", "retention", "disengage", "risk"),
+    "basket": ("basket", "frequently bought", "purchased together", "combination", "affinity"),
+    "demand": ("demand", "inventory", "stock", "shortage", "seasonal"),
+    "reviews": ("review", "sentiment", "feedback", "rating"),
     "processing": ("spark", "pyspark", "clean", "processing", "event", "pipeline", "etl"),
-    "customer360": ("graph", "relationship", "customer 360", "neo4j", "customer"),
+    "customer360": ("graph", "relationship", "customer 360", "customer"),
 }
 
 
@@ -109,6 +138,16 @@ def _run_tools(tools: list[str], question: str) -> dict:
         outputs["explainability"] = feature_explanation()
     if "features" in tools:
         outputs["features"] = get_customer_features("cust-maya-chen")
+    if "behavior" in tools:
+        outputs["behavior"] = customer_behavior("cust-maya-chen")
+    if "churn" in tools:
+        outputs["churn"] = churn_risk("cust-maya-chen")
+    if "basket" in tools:
+        outputs["basket"] = basket_analysis()
+    if "demand" in tools:
+        outputs["demand"] = demand_forecast(periods=7)
+    if "reviews" in tools:
+        outputs["reviews"] = review_intelligence()
     if "processing" in tools:
         outputs["processing"] = {
             "spark": spark_status(),
@@ -146,5 +185,20 @@ def _local_answer(question: str, tool_outputs: dict, fallback_reason: str) -> st
     features = tool_outputs.get("features")
     if features and features.get("features"):
         parts.append(f"Feature store source: {features['source']}.")
+    churn = tool_outputs.get("churn")
+    if churn:
+        score = churn["churn"]
+        parts.append(
+            f"Current churn risk is {score['percent']:.1f}% ({score['risk_band']}), based on {churn['feature_source']} features."
+        )
+    basket = tool_outputs.get("basket")
+    if basket:
+        parts.append(f"Basket analysis found {len(basket['pairs'])} product affinities across {basket['basket_count']} baskets.")
+    demand = tool_outputs.get("demand")
+    if demand:
+        parts.append(f"Demand forecasting returned {len(demand['forecasts'])} product forecasts.")
+    reviews = tool_outputs.get("reviews")
+    if reviews:
+        parts.append(f"Review intelligence analyzed {reviews['review_count']} reviews.")
     parts.append(f"LLM fallback was used because: {fallback_reason}")
     return " ".join(parts)

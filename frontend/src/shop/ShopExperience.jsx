@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LogIn, Radar, ShoppingBag, ShoppingCart, Sparkles } from 'lucide-react';
 
-import { clearAuthSession, fetchShopProducts, getAuthToken, loginUser, placeShopOrder } from '../services/api.js';
+import { clearAuthSession, fetchShopOrders, fetchShopProducts, getAuthToken, loginUser, placeShopOrder } from '../services/api.js';
 import { fallbackProducts } from './shopData.js';
 import './shop.css';
 
@@ -12,13 +12,18 @@ export function ShopExperience({ onOpenDashboard }) {
   const [recommendations, setRecommendations] = useState([]);
   const [orderStatus, setOrderStatus] = useState('Browse products');
   const [emqxStatus, setEmqxStatus] = useState(null);
-  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [placingProductId, setPlacingProductId] = useState(null);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
 
+  const customerId = 'customer-demo-001';
+
+  const [orders, setOrders] = useState([]);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
 
   useEffect(() => {
     if (!isAuthed) return undefined;
     let mounted = true;
+
     fetchShopProducts()
       .then((payload) => {
         if (mounted) setProducts(payload.products);
@@ -26,6 +31,19 @@ export function ShopExperience({ onOpenDashboard }) {
       .catch(() => {
         if (mounted) setOrderStatus('Demo catalog loaded');
       });
+
+    setIsLoadingOrders(true);
+    fetchShopOrders({ customerId })
+      .then((payload) => {
+        if (mounted) setOrders(payload.orders || []);
+      })
+      .catch(() => {
+        if (mounted) setOrders([]);
+      })
+      .finally(() => {
+        if (mounted) setIsLoadingOrders(false);
+      });
+
     return () => {
       mounted = false;
     };
@@ -41,21 +59,25 @@ export function ShopExperience({ onOpenDashboard }) {
     setIsAuthed(false);
     setProducts(fallbackProducts);
     setOrderStatus('Browse products');
+    setOrders([]);
+    setSelectedProduct(null);
+    setRecommendations([]);
+    setEmqxStatus(null);
   }
 
   async function buyProduct(product) {
-    if (isPlacingOrder) return;
+    if (placingProductId === product.id) return;
 
     setSelectedProduct(product);
     setOrderStatus('Placing order...');
     setRecommendations([]);
     setEmqxStatus(null);
-    setIsPlacingOrder(true);
+    setPlacingProductId(product.id);
     setIsLoadingRecommendations(true);
 
     try {
       const payload = await placeShopOrder({
-        customerId: 'customer-demo-001',
+        customerId,
         productId: product.id,
         quantity: 1
       });
@@ -63,10 +85,19 @@ export function ShopExperience({ onOpenDashboard }) {
       setOrderStatus(`Order ${payload.order.order_id} placed`);
       setRecommendations(payload.recommendations);
       setEmqxStatus(payload.emqx);
+      setOrders((currentOrders) => upsertOrder(currentOrders, normalizeOrder(payload.order)));
+
+      // Refresh order history so the customer sees the new purchase
+      setIsLoadingOrders(true);
+      fetchShopOrders({ customerId })
+        .then((next) => setOrders(next.orders || []))
+        .catch(() => {})
+        .finally(() => setIsLoadingOrders(false));
+
     } catch {
       setOrderStatus('Order API unavailable');
     } finally {
-      setIsPlacingOrder(false);
+      setPlacingProductId(null);
       setIsLoadingRecommendations(false);
     }
   }
@@ -122,10 +153,10 @@ export function ShopExperience({ onOpenDashboard }) {
                 <button
                   type="button"
                   onClick={() => buyProduct(product)}
-                  disabled={isPlacingOrder}
-                  aria-disabled={isPlacingOrder}
+                  disabled={placingProductId === product.id}
+                  aria-disabled={placingProductId === product.id}
                 >
-                  {isPlacingOrder ? 'Placing…' : 'Buy'}
+                  {placingProductId === product.id ? 'Placing…' : 'Buy'}
                 </button>
 
               </div>
@@ -133,6 +164,48 @@ export function ShopExperience({ onOpenDashboard }) {
           </article>
         ))}
       </section>}
+
+      {isAuthed && (
+        <section className="cart-panel" aria-label="My orders">
+          <div className="cart-panel-head">
+            <p className="eyebrow">My orders</p>
+            <strong>{isLoadingOrders ? 'Loading…' : `${orders.length} purchased`}</strong>
+          </div>
+
+          <div className="cart-list" role="list" aria-busy={isLoadingOrders}>
+            {isLoadingOrders ? (
+              <div className="cart-empty">Fetching order history…</div>
+            ) : orders.length === 0 ? (
+              <div className="cart-empty">No purchases yet. Pick a product to buy.</div>
+            ) : (
+              orders.slice(0, 6).map((order) => (
+                <div className="cart-item" key={order.order_id} role="listitem">
+                  <div
+                    className="cart-item-art"
+                    style={{ backgroundColor: order.product?.accent || '#0f172a' }}
+                    aria-hidden="true"
+                  />
+                  <div className="cart-item-body">
+                    <div className="cart-item-top">
+                      <strong>{order.product?.name || order.product?.id || 'Unknown product'}</strong>
+                      <span className="cart-item-total">${Number(order.revenue ?? 0).toFixed(2)}</span>
+                    </div>
+                    <div className="cart-item-meta">
+                      <span>{order.quantity} × ${Number(order.price ?? 0).toFixed(2)}</span>
+                      <span className="cart-item-sep">•</span>
+                      <span>{order.order_id}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {orders.length > 6 && !isLoadingOrders && (
+            <div className="cart-more">Showing latest 6 orders</div>
+          )}
+        </section>
+      )}
 
       {isAuthed && selectedProduct && (
         <section className="post-purchase">
@@ -167,6 +240,21 @@ export function ShopExperience({ onOpenDashboard }) {
       )}
     </main>
   );
+}
+
+function normalizeOrder(order) {
+  return {
+    ...order,
+    revenue: order.revenue ?? order.total ?? 0,
+    price: order.price ?? order.product?.price ?? 0
+  };
+}
+
+function upsertOrder(orders, nextOrder) {
+  return [
+    nextOrder,
+    ...orders.filter((order) => order.order_id !== nextOrder.order_id)
+  ];
 }
 
 function ShopLogin({ onLogin }) {
