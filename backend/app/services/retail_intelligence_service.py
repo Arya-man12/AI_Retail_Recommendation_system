@@ -1,6 +1,7 @@
 from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from itertools import combinations
+from uuid import uuid4
 
 from app.config import settings
 from app.services.auth_service import get_mongo_client
@@ -224,6 +225,38 @@ def review_intelligence(product_id: str | None = None) -> dict:
         "sentiment_mix": {label: round(count / total, 3) for label, count in counts.items()},
         "reviews": enriched[:20],
         "source": "mongodb_reviews" if reviews else "demo_or_empty",
+    }
+
+
+def submit_product_review(customer_id: str, product_id: str, rating: int, text: str) -> dict:
+    product = _product_by_id(product_id)
+    sentiment = score_review_sentiment(text)
+    review = {
+        "review_id": f"rev-{uuid4().hex[:12]}",
+        "product_id": product_id,
+        "customer_id": customer_id,
+        "rating": rating,
+        "text": text,
+        "sentiment": sentiment,
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+    }
+    try:
+        db = _db()
+        db.product_reviews.create_index("review_id", unique=True)
+        db.product_reviews.insert_one(review)
+        stored = True
+        source = "mongodb_reviews"
+    except Exception as exc:
+        stored = False
+        source = "transient_review"
+        review["warning"] = str(exc)
+
+    return {
+        "stored": stored,
+        "source": source,
+        "review": {key: value for key, value in review.items() if key not in {"_id", "created_at", "updated_at"}},
+        "product": product.get("name", product_id),
     }
 
 

@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
-import { LogIn, Radar, ShoppingBag, ShoppingCart, Sparkles } from 'lucide-react';
+import { LogIn, Radar, ShoppingBag, ShoppingCart, Sparkles, UserPlus } from 'lucide-react';
 
-import { clearAuthSession, fetchShopOrders, fetchShopProducts, getAuthToken, loginUser, placeShopOrder } from '../services/api.js';
+import { clearAuthSession, fetchShopOrders, fetchShopProducts, getAuthToken, getAuthUser, loginUser, placeShopOrder, registerUser, submitProductReview } from '../services/api.js';
 import { fallbackProducts } from './shopData.js';
 import './shop.css';
+
+const shopAccess = [
+  { role: 'Customer', scope: 'Browse products, place orders, view order history, and receive recommendations.' },
+  { role: 'Internal roles', scope: 'Dashboard, ML, graph, copilot, streaming, feature, and ops tools stay outside the shop.' }
+];
 
 export function ShopExperience({ onOpenDashboard }) {
   const [isAuthed, setIsAuthed] = useState(Boolean(getAuthToken('shop')));
@@ -14,8 +19,13 @@ export function ShopExperience({ onOpenDashboard }) {
   const [emqxStatus, setEmqxStatus] = useState(null);
   const [placingProductId, setPlacingProductId] = useState(null);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  const [reviewProductId, setReviewProductId] = useState('');
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [reviewStatus, setReviewStatus] = useState('Share product feedback');
 
-  const customerId = 'customer-demo-001';
+  const authUser = getAuthUser('shop');
+  const customerId = authUser?.customer_id || 'customer-demo-001';
 
   const [orders, setOrders] = useState([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
@@ -47,10 +57,15 @@ export function ShopExperience({ onOpenDashboard }) {
     return () => {
       mounted = false;
     };
-  }, [isAuthed]);
+  }, [isAuthed, customerId]);
 
   async function handleLogin(credentials) {
     await loginUser({ ...credentials, site: 'shop' });
+    setIsAuthed(true);
+  }
+
+  async function handleRegister(credentials) {
+    await registerUser({ ...credentials, site: 'shop' });
     setIsAuthed(true);
   }
 
@@ -102,6 +117,25 @@ export function ShopExperience({ onOpenDashboard }) {
     }
   }
 
+  async function submitReview(event) {
+    event.preventDefault();
+    const productId = reviewProductId || selectedProduct?.id || products[0]?.id;
+    if (!productId || !reviewText.trim()) return;
+    setReviewStatus('Submitting review...');
+    try {
+      const payload = await submitProductReview({
+        customerId,
+        productId,
+        rating: Number(reviewRating),
+        text: reviewText.trim()
+      });
+      setReviewStatus(`Review saved: ${payload.review.sentiment.label}`);
+      setReviewText('');
+      setReviewProductId(productId);
+    } catch (error) {
+      setReviewStatus(error.message || 'Review API unavailable');
+    }
+  }
 
   return (
     <main className="shop-shell">
@@ -124,7 +158,7 @@ export function ShopExperience({ onOpenDashboard }) {
         )}
       </header>
 
-      {!isAuthed && <ShopLogin onLogin={handleLogin} />}
+      {!isAuthed && <ShopLogin onLogin={handleLogin} onRegister={handleRegister} />}
 
       {isAuthed && <section className="shop-hero">
         <div>
@@ -238,6 +272,30 @@ export function ShopExperience({ onOpenDashboard }) {
           )}
         </section>
       )}
+
+      {isAuthed && (
+        <section className="review-panel" aria-label="Product review">
+          <div>
+            <p className="eyebrow">Review intelligence</p>
+            <h2>Give a product review</h2>
+          </div>
+          <form className="review-form" onSubmit={submitReview}>
+            <select value={reviewProductId || selectedProduct?.id || products[0]?.id || ''} onChange={(event) => setReviewProductId(event.target.value)} aria-label="Product">
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>{product.name}</option>
+              ))}
+            </select>
+            <select value={reviewRating} onChange={(event) => setReviewRating(event.target.value)} aria-label="Rating">
+              {[5, 4, 3, 2, 1].map((rating) => (
+                <option key={rating} value={rating}>{rating} stars</option>
+              ))}
+            </select>
+            <textarea value={reviewText} onChange={(event) => setReviewText(event.target.value)} minLength={3} maxLength={1000} placeholder="Write your review" aria-label="Review text" />
+            <button type="submit">Submit review</button>
+            <span>{reviewStatus}</span>
+          </form>
+        </section>
+      )}
     </main>
   );
 }
@@ -257,19 +315,25 @@ function upsertOrder(orders, nextOrder) {
   ];
 }
 
-function ShopLogin({ onLogin }) {
+function ShopLogin({ onLogin, onRegister }) {
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('shopper@example.com');
   const [password, setPassword] = useState('Shopper123!');
   const [status, setStatus] = useState('Use the seeded shopper account');
 
   async function submit(event) {
     event.preventDefault();
-    setStatus('Signing in...');
+    setStatus(mode === 'login' ? 'Signing in...' : 'Creating customer account...');
     try {
-      await onLogin({ email, password });
-      setStatus('Signed in');
-    } catch {
-      setStatus('Sign in failed');
+      if (mode === 'login') {
+        await onLogin({ email, password });
+        setStatus('Signed in');
+      } else {
+        await onRegister({ email, password });
+        setStatus('Account created');
+      }
+    } catch (error) {
+      setStatus(error.message || (mode === 'login' ? 'Sign in failed' : 'Registration failed'));
     }
   }
 
@@ -277,15 +341,33 @@ function ShopLogin({ onLogin }) {
     <section className="shop-login">
       <div>
         <p className="eyebrow">MongoDB RBAC</p>
-        <h2>BrightCart customer access</h2>
+        <h2>{mode === 'login' ? 'BrightCart customer access' : 'Create BrightCart account'}</h2>
         <p>Customer roles can browse products and place orders without internal analytics access.</p>
+        <div className="shop-access-list" aria-label="Shop role access">
+          {shopAccess.map((item) => (
+            <div key={item.role}>
+              <strong>{item.role}</strong>
+              <span>{item.scope}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <form className="shop-login-form" onSubmit={submit}>
-        <input aria-label="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <input aria-label="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <div className="shop-auth-mode" role="tablist" aria-label="Authentication mode">
+          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+            <LogIn size={16} aria-hidden="true" />
+            Sign in
+          </button>
+          <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>
+            <UserPlus size={16} aria-hidden="true" />
+            Register
+          </button>
+        </div>
+        <input aria-label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <input aria-label="Password" type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} />
         <button type="submit">
-          <LogIn size={18} aria-hidden="true" />
-          Sign in
+          {mode === 'login' ? <LogIn size={18} aria-hidden="true" /> : <UserPlus size={18} aria-hidden="true" />}
+          {mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
         <span>{status}</span>
       </form>

@@ -148,24 +148,9 @@ def customer_graph(customer_id: str = "cust-maya-chen") -> dict:
         if snapshot:
             return snapshot
     except Exception as exc:
-        payload = dashboard_payload()
-        return {
-            "customer_id": customer_id,
-            "profile": payload["customers"][0],
-            "graph": payload["graph"],
-            "relationship_count": len(payload["graph"]["edges"]),
-            "source": "demo_customer_360_graph",
-            "error": str(exc),
-        }
+        return _empty_customer_graph(customer_id, error=str(exc))
 
-    payload = dashboard_payload()
-    return {
-        "customer_id": customer_id,
-        "profile": payload["customers"][0],
-        "graph": payload["graph"],
-        "relationship_count": len(payload["graph"]["edges"]),
-        "source": "demo_customer_360_graph",
-    }
+    return _empty_customer_graph(customer_id)
 
 
 def _customer_graph_from_mongo(customer_id: str) -> dict:
@@ -311,8 +296,130 @@ def _customer_name(customer_id: str) -> str:
         "cust-maya-chen": "Maya Chen",
         "customer-demo-001": "Demo Shopper",
         "cust-urban-commuter": "Urban Commuter",
+        "cust-home-premium": "Premium Home Accounts",
+        "cust-winback": "Dormant Wellness Buyers",
     }
     return names.get(customer_id, customer_id.replace("-", " ").title())
+
+
+def _fallback_customer_graph(customer_id: str) -> dict:
+    profile = _fallback_customer_profile(customer_id)
+    product = _fallback_product_for_customer(customer_id)
+    region = _fallback_region_for_customer(customer_id)
+    segment = profile["segment"].split(" ", 1)[0]
+    short_name = _short_label(profile["name"])
+    graph = {
+        "nodes": [
+            {"id": customer_id, "label": short_name, "kind": "customer", "x": 45, "y": 44},
+            {"id": product["id"], "label": _short_label(product["label"]), "kind": "product", "x": 16, "y": 22},
+            {"id": f"region-{region.lower()}", "label": region, "kind": "region", "x": 73, "y": 21},
+            {"id": f"campaign-{customer_id}", "label": product["campaign"], "kind": "campaign", "x": 22, "y": 73},
+            {"id": f"segment-{customer_id}", "label": segment, "kind": "segment", "x": 75, "y": 72},
+        ],
+        "edges": [
+            {"id": "a", "type": product["event"], "source_position": {"x": 45, "y": 44}, "target_position": {"x": 16, "y": 22}},
+            {"id": "b", "type": "LOCATED_IN", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 73, "y": 21}},
+            {"id": "c", "type": "TARGETED", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 22, "y": 73}},
+            {"id": "d", "type": "BELONGS_TO", "source_position": {"x": 45, "y": 44}, "target_position": {"x": 75, "y": 72}},
+        ],
+    }
+
+
+def _empty_customer_graph(customer_id: str, error: str | None = None) -> dict:
+    return {
+        "customer_id": customer_id,
+        "profile": {
+            "name": _customer_name(customer_id),
+            "initials": _initials(_customer_name(customer_id)),
+            "segment": "No activity yet",
+            "ltv": "$0",
+            "churnRisk": "Unknown",
+            "lastEvent": "No purchases or browse events",
+        },
+        "graph": {"nodes": [], "edges": []},
+        "relationship_count": 0,
+        "source": "no_customer_graph",
+        "error": error,
+    }
+    return {
+        "customer_id": customer_id,
+        "profile": profile,
+        "graph": graph,
+        "relationship_count": len(graph["edges"]),
+        "source": "demo_customer_360_graph",
+    }
+
+
+def _fallback_customer_profile(customer_id: str) -> dict:
+    profiles = {
+        "cust-maya-chen": {
+            "segment": "High-LTV wellness buyer",
+            "ltv": "$18,420",
+            "churnRisk": "Low",
+            "lastEvent": "Viewed hydration bundle",
+        },
+        "customer-demo-001": {
+            "segment": "Active shop customer",
+            "ltv": "$640",
+            "churnRisk": "Medium",
+            "lastEvent": "Purchased Air Quality Monitor Pro",
+        },
+        "cust-urban-commuter": {
+            "segment": "Urban commuter cohort",
+            "ltv": "$8,600",
+            "churnRisk": "Low",
+            "lastEvent": "Purchased compact power kit",
+        },
+        "cust-home-premium": {
+            "segment": "Premium home accounts",
+            "ltv": "$12,650",
+            "churnRisk": "Low",
+            "lastEvent": "Opened smart home campaign",
+        },
+        "cust-winback": {
+            "segment": "Dormant wellness buyers",
+            "ltv": "$4,200",
+            "churnRisk": "High",
+            "lastEvent": "Ignored winback email",
+        },
+    }
+    profile = profiles.get(
+        customer_id,
+        {
+            "segment": "Emerging customer",
+            "ltv": "$0",
+            "churnRisk": "Unknown",
+            "lastEvent": "No recent activity",
+        },
+    )
+    name = _customer_name(customer_id)
+    return {
+        "name": name,
+        "initials": _initials(name),
+        **profile,
+    }
+
+
+def _fallback_product_for_customer(customer_id: str) -> dict:
+    products = {
+        "cust-maya-chen": {"id": "sku-hydration", "label": "Hydration Bundle", "event": "VIEWED", "campaign": "Email"},
+        "customer-demo-001": {"id": "sku-air", "label": "Air Quality Monitor", "event": "PURCHASED", "campaign": "Shop"},
+        "cust-urban-commuter": {"id": "sku-power", "label": "Power Kit", "event": "PURCHASED", "campaign": "Mobile"},
+        "cust-home-premium": {"id": "sku-air", "label": "Air Quality Monitor", "event": "VIEWED", "campaign": "Smart Home"},
+        "cust-winback": {"id": "sku-sleep", "label": "Sleep Sensor", "event": "VIEWED", "campaign": "Winback"},
+    }
+    return products.get(customer_id, {"id": "sku-unknown", "label": "Product", "event": "RELATED", "campaign": "Demo"})
+
+
+def _fallback_region_for_customer(customer_id: str) -> str:
+    regions = {
+        "cust-maya-chen": "NE",
+        "customer-demo-001": "South",
+        "cust-urban-commuter": "West",
+        "cust-home-premium": "South",
+        "cust-winback": "Midwest",
+    }
+    return regions.get(customer_id, "NA")
 
 
 def _segment_label(categories: Counter, order_count: int) -> str:

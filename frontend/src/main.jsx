@@ -15,12 +15,25 @@ import {
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  UserPlus,
   Users,
   WandSparkles
 } from 'lucide-react';
 import './styles.css';
-import { askCopilot, clearAuthSession, fetchCustomer360, fetchDashboardData, fetchIntelligenceSnapshot, getAuthToken, loginUser } from './services/api.js';
-import { fallbackDashboard } from './services/fallbackData.js';
+import {
+  askCopilot,
+  clearAuthSession,
+  fetchCustomer360,
+  fetchDashboardData,
+  fetchFeatureAttribution,
+  fetchRegisteredCustomers,
+  fetchIntelligenceSnapshot,
+  fetchProductRecommendations,
+  forecastRevenue,
+  getAuthToken,
+  loginUser,
+  registerUser
+} from './services/api.js';
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: Activity },
@@ -32,10 +45,25 @@ const tabs = [
   { id: 'copilot', label: 'Copilot', icon: Bot }
 ];
 
+const dashboardAccess = [
+  { role: 'Viewer', scope: 'Dashboard metrics and intelligence snapshots only.' },
+  { role: 'Marketing analyst', scope: 'Viewer access plus ecommerce reads, ML reads, features, graph, streaming, and copilot.' },
+  { role: 'Admin', scope: 'Full internal access, write tools for ecommerce, ML, features, graph, plus ops and user seeding.' }
+];
+
+const emptyDashboard = {
+  metrics: [],
+  revenueSeries: [],
+  signals: [],
+  explainability: null
+};
+
 function App() {
   const [isAuthed, setIsAuthed] = useState(Boolean(getAuthToken('dashboard')));
   const [activeTab, setActiveTab] = useState('overview');
-  const [data, setData] = useState(fallbackDashboard);
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [data, setData] = useState(emptyDashboard);
   const [status, setStatus] = useState('Loading live API');
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
   const [isLoadingIntelligence, setIsLoadingIntelligence] = useState(true);
@@ -43,11 +71,41 @@ function App() {
   const [hasDashboardError, setHasDashboardError] = useState(false);
   const [hasIntelligenceError, setHasIntelligenceError] = useState(false);
   const [hasCustomer360Error, setHasCustomer360Error] = useState(false);
+  const [hasRecommendationError, setHasRecommendationError] = useState(false);
+  const [hasForecastError, setHasForecastError] = useState(false);
+  const [hasExplanationError, setHasExplanationError] = useState(false);
+  const [isLoadingML, setIsLoadingML] = useState(true);
+  const [isLoadingExplanation, setIsLoadingExplanation] = useState(true);
 
-  const [query, setQuery] = useState('Explain why Northeast revenue is rising this week.');
-  const [answer, setAnswer] = useState(fallbackDashboard.copilot.sampleAnswer);
+  const [query, setQuery] = useState('Explain why this customer received these product recommendations.');
+  const [answer, setAnswer] = useState('Ask a question to run the governed copilot.');
   const [intelligence, setIntelligence] = useState(null);
   const [customer360, setCustomer360] = useState(null);
+  const [mlForecast, setMlForecast] = useState(null);
+  const [mlRecommendations, setMlRecommendations] = useState(null);
+  const [featureAttribution, setFeatureAttribution] = useState(null);
+
+  const selectedCustomerOption = customerOptions.find((customer) => customer.id === selectedCustomerId) || null;
+
+  useEffect(() => {
+    if (!isAuthed) return undefined;
+    let mounted = true;
+    fetchRegisteredCustomers()
+      .then((payload) => {
+        if (!mounted) return;
+        const customers = payload.customers || [];
+        setCustomerOptions(customers);
+        setSelectedCustomerId((current) => current || customers[0]?.id || '');
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setCustomerOptions([]);
+        setSelectedCustomerId('');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthed]);
 
   useEffect(() => {
     if (!isAuthed) return undefined;
@@ -56,9 +114,14 @@ function App() {
     setIsLoadingDashboard(true);
     setIsLoadingIntelligence(true);
     setIsLoadingCustomer360(true);
+    setIsLoadingML(true);
+    setIsLoadingExplanation(true);
     setHasDashboardError(false);
     setHasIntelligenceError(false);
     setHasCustomer360Error(false);
+    setHasRecommendationError(false);
+    setHasForecastError(false);
+    setHasExplanationError(false);
     setStatus('Loading live API');
 
     fetchDashboardData()
@@ -70,7 +133,8 @@ function App() {
       .catch(() => {
         if (!mounted) return;
         setHasDashboardError(true);
-        setStatus('Demo data fallback');
+        setData(emptyDashboard);
+        setStatus('Dashboard API error');
       })
       .finally(() => {
         if (!mounted) return;
@@ -92,29 +156,103 @@ function App() {
         setIsLoadingIntelligence(false);
       });
 
-    fetchCustomer360()
-      .then((payload) => {
-        if (mounted) setCustomer360(payload);
+    if (selectedCustomerOption) {
+      fetchCustomer360(selectedCustomerId)
+        .then((payload) => {
+          if (mounted) setCustomer360(payload);
+        })
+        .catch(() => {
+          if (mounted) {
+            setHasCustomer360Error(true);
+            setCustomer360(null);
+          }
+        })
+        .finally(() => {
+          if (!mounted) return;
+          setIsLoadingCustomer360(false);
+        });
+
+      const revenueHistory = selectedCustomerOption.revenueHistory?.length >= 3
+        ? selectedCustomerOption.revenueHistory
+        : null;
+
+      const forecastRequest = revenueHistory
+        ? forecastRevenue(revenueHistory)
+        : Promise.reject(new Error('This customer needs at least three orders before forecasting.'));
+
+      Promise.allSettled([
+        forecastRequest,
+        fetchProductRecommendations({
+          customerId: selectedCustomerOption.id,
+          segment: selectedCustomerOption.segment,
+          recentCategories: selectedCustomerOption.recentCategories
+        })
+      ])
+        .then(([forecastResult, recommendationResult]) => {
+          if (!mounted) return;
+          if (forecastResult.status === 'fulfilled') {
+            setMlForecast(toForecastSeries(revenueHistory, forecastResult.value));
+            setHasForecastError(false);
+          } else {
+            setMlForecast(null);
+            setHasForecastError(true);
+          }
+
+          if (recommendationResult.status === 'fulfilled') {
+            setMlRecommendations(toRecommendationCards(recommendationResult.value, selectedCustomerOption));
+            setHasRecommendationError(false);
+          } else {
+            setMlRecommendations(null);
+            setHasRecommendationError(true);
+          }
+        })
+        .finally(() => {
+          if (!mounted) return;
+          setIsLoadingML(false);
+        });
+
+      fetchFeatureAttribution({
+        customerId: selectedCustomerOption.id,
+        segment: selectedCustomerOption.segment,
+        recentCategories: selectedCustomerOption.recentCategories
       })
-      .catch(() => {
-        if (mounted) {
-          setHasCustomer360Error(true);
-          setCustomer360(null);
-        }
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setIsLoadingCustomer360(false);
-      });
+        .then((payload) => {
+          if (!mounted) return;
+          setFeatureAttribution(payload);
+          setHasExplanationError(false);
+        })
+        .catch(() => {
+          if (!mounted) return;
+          setFeatureAttribution(null);
+          setHasExplanationError(true);
+        })
+        .finally(() => {
+          if (!mounted) return;
+          setIsLoadingExplanation(false);
+        });
+    } else {
+      setCustomer360(null);
+      setMlForecast(null);
+      setMlRecommendations(null);
+      setFeatureAttribution(null);
+      setIsLoadingCustomer360(false);
+      setIsLoadingML(false);
+      setIsLoadingExplanation(false);
+    }
 
     return () => {
       mounted = false;
     };
-  }, [isAuthed]);
+  }, [isAuthed, selectedCustomerId, selectedCustomerOption]);
 
 
   async function handleLogin(credentials) {
     await loginUser({ ...credentials, site: 'dashboard' });
+    setIsAuthed(true);
+  }
+
+  async function handleRegister(credentials) {
+    await registerUser({ ...credentials, site: 'dashboard' });
     setIsAuthed(true);
   }
 
@@ -123,10 +261,12 @@ function App() {
     setIsAuthed(false);
   }
 
-  const selectedCustomer = customer360?.profile || intelligence?.customer360?.profile || data.customers[0];
-  const explanationData = intelligence?.explainability || data.explainability;
-  const customerGraph = customer360?.graph || intelligence?.customer360?.graph || data.graph;
+  const selectedCustomer = customer360?.profile || null;
+  const explanationData = featureAttribution;
+  const customerGraph = customer360?.graph || { nodes: [], edges: [] };
   const customerGraphSource = customer360?.source || intelligence?.customer360?.data_source || 'demo_customer_360_graph';
+  const recommendationCards = mlRecommendations || [];
+  const forecastSeries = mlForecast?.series || [];
 
   async function handleCopilotSubmit(event) {
     event.preventDefault();
@@ -136,8 +276,8 @@ function App() {
     try {
       const response = await askCopilot(trimmed);
       setAnswer(response.answer);
-    } catch {
-      setAnswer(fallbackDashboard.copilot.sampleAnswer);
+    } catch (error) {
+      setAnswer(error.message || 'Copilot API unavailable.');
     }
   }
 
@@ -204,21 +344,40 @@ function App() {
           </div>
         </header>
 
-        {!isAuthed && <DashboardLogin onLogin={handleLogin} />}
+        {!isAuthed && <DashboardLogin onLogin={handleLogin} onRegister={handleRegister} />}
 
         {isAuthed && activeTab === 'overview' && (
           <Overview data={data} isLoading={isLoadingDashboard} hasError={hasDashboardError} />
         )}
-        {isAuthed && activeTab === 'recommendations' && <Recommendations recommendations={data.recommendations} />}
-        {isAuthed && activeTab === 'forecasting' && <Forecasting forecast={data.forecast} />}
+        {isAuthed && activeTab === 'recommendations' && (
+          <Recommendations
+            recommendations={recommendationCards}
+            customerOptions={customerOptions}
+            selectedCustomerId={selectedCustomerId}
+            onCustomerChange={setSelectedCustomerId}
+            isLoading={isLoadingML}
+            hasError={hasRecommendationError}
+          />
+        )}
+        {isAuthed && activeTab === 'forecasting' && (
+          <Forecasting
+            forecast={forecastSeries}
+            model={mlForecast?.model}
+            customerOptions={customerOptions}
+            selectedCustomerId={selectedCustomerId}
+            onCustomerChange={setSelectedCustomerId}
+            isLoading={isLoadingML}
+            hasError={hasForecastError}
+          />
+        )}
         {isAuthed && activeTab === 'retail-ai' && (
           <RetailAI intelligence={intelligence} isLoading={isLoadingIntelligence} hasError={hasIntelligenceError} />
         )}
         {isAuthed && activeTab === 'explainability' && (
           <Explainability
             explanation={explanationData}
-            isLoading={isLoadingIntelligence}
-            hasError={hasIntelligenceError}
+            isLoading={isLoadingExplanation}
+            hasError={hasExplanationError}
           />
         )}
         {isAuthed && activeTab === 'customer360' && (
@@ -226,6 +385,9 @@ function App() {
             customer={selectedCustomer}
             graph={customerGraph}
             source={customerGraphSource}
+            customerOptions={customerOptions}
+            selectedCustomerId={selectedCustomerId}
+            onCustomerChange={setSelectedCustomerId}
             isLoading={isLoadingCustomer360}
             hasError={hasCustomer360Error}
           />
@@ -239,19 +401,73 @@ function App() {
   );
 }
 
-function DashboardLogin({ onLogin }) {
+function toForecastSeries(history, payload) {
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const prediction = payload?.prediction ?? history[history.length - 1];
+  return {
+    model: payload?.model,
+    series: [
+      ...history.map((value, index) => ({
+        day: labels[index] || `T-${history.length - index}`,
+        actual: value,
+        predicted: value
+      })),
+      {
+        day: 'Next',
+        actual: 0,
+        predicted: prediction
+      }
+    ]
+  };
+}
+
+function toRecommendationCards(payload, customer) {
+  return (payload?.recommendations || []).map((item, index) => ({
+    product: item.product,
+    score: Math.round(item.score * 100),
+    segment: customer.segment,
+    reason: recommendationReason(item.product, customer.recentCategories, payload?.source),
+    gradient: productGradient(item.product, index)
+  }));
+}
+
+function recommendationReason(product, categories, source) {
+  const categoryText = categories?.length ? categories.join(', ') : 'purchase';
+  if (source === 'transparent_rules') {
+    return `${product} was selected by transparent scoring over this customer's ${categoryText} profile.`;
+  }
+  return `${product} matches recent ${categoryText} behavior for this customer profile.`;
+}
+
+function productGradient(product, index) {
+  const gradients = {
+    'Smart Hydration Bundle': 'linear-gradient(135deg, #0f766e, #22c55e)',
+    'Air Quality Monitor Pro': 'linear-gradient(135deg, #2563eb, #06b6d4)',
+    'Compact Power Kit': 'linear-gradient(135deg, #b45309, #f59e0b)',
+    'Sleep Recovery Sensor': 'linear-gradient(135deg, #7c3aed, #db2777)'
+  };
+  return gradients[product] || ['linear-gradient(135deg, #334155, #0f766e)', 'linear-gradient(135deg, #1d4ed8, #0891b2)', 'linear-gradient(135deg, #be123c, #c2410c)'][index % 3];
+}
+
+function DashboardLogin({ onLogin, onRegister }) {
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('analyst@example.com');
   const [password, setPassword] = useState('Analyst123!');
   const [status, setStatus] = useState('Use the seeded analyst account');
 
   async function submit(event) {
     event.preventDefault();
-    setStatus('Signing in...');
+    setStatus(mode === 'login' ? 'Signing in...' : 'Creating viewer account...');
     try {
-      await onLogin({ email, password });
-      setStatus('Signed in');
-    } catch {
-      setStatus('Sign in failed');
+      if (mode === 'login') {
+        await onLogin({ email, password });
+        setStatus('Signed in');
+      } else {
+        await onRegister({ email, password });
+        setStatus('Account created');
+      }
+    } catch (error) {
+      setStatus(error.message || (mode === 'login' ? 'Sign in failed' : 'Registration failed'));
     }
   }
 
@@ -259,15 +475,37 @@ function DashboardLogin({ onLogin }) {
     <section className="auth-panel">
       <div>
         <p className="eyebrow">MongoDB RBAC</p>
-        <h3>Internal dashboard access</h3>
-        <p>Sign in with a dashboard role before loading analytics, ML, customer graph, and copilot insights.</p>
+        <h3>{mode === 'login' ? 'Internal dashboard access' : 'Create dashboard account'}</h3>
+        <p>
+          {mode === 'login'
+            ? 'Sign in with a dashboard role before loading analytics, ML, customer graph, and copilot insights.'
+            : 'New dashboard accounts start as viewers with read-only dashboard and intelligence access.'}
+        </p>
+        <div className="access-list" aria-label="Dashboard role access">
+          {dashboardAccess.map((item) => (
+            <div key={item.role}>
+              <strong>{item.role}</strong>
+              <span>{item.scope}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <form className="auth-form" onSubmit={submit}>
-        <input aria-label="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <input aria-label="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <div className="auth-mode" role="tablist" aria-label="Authentication mode">
+          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+            <LogIn size={16} aria-hidden="true" />
+            Sign in
+          </button>
+          <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>
+            <UserPlus size={16} aria-hidden="true" />
+            Register
+          </button>
+        </div>
+        <input aria-label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <input aria-label="Password" type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} />
         <button type="submit">
-          <LogIn size={18} aria-hidden="true" />
-          Sign in
+          {mode === 'login' ? <LogIn size={18} aria-hidden="true" /> : <UserPlus size={18} aria-hidden="true" />}
+          {mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
         <span>{status}</span>
       </form>
@@ -279,13 +517,15 @@ function Overview({ data, isLoading, hasError }) {
   return (
     <div className="view-stack">
       {(isLoading || hasError) && (
-        <div className="status-banner" role="status" aria-live="polite">
-          <strong>{hasError ? 'Demo data' : 'Loading'}</strong>
+        <div className={`status-banner ${hasError ? 'error' : ''}`} role="status" aria-live="polite">
+          <strong>{hasError ? 'Dashboard error' : 'Loading'}</strong>
           <span>
-            {hasError ? 'Internal API unavailable — showing demo analytics.' : 'Fetching live dashboard metrics...'}
+            {hasError ? 'Internal API unavailable. No fallback data is being shown.' : 'Fetching live dashboard metrics...'}
           </span>
         </div>
       )}
+
+      {hasError && !isLoading && <EmptyPanel title="Dashboard data unavailable" detail="Fix the API or MongoDB connection, then reload this view." />}
 
       <section className="metric-grid" aria-busy={isLoading}>
         {data.metrics.map((metric) => (
@@ -330,49 +570,104 @@ function Overview({ data, isLoading, hasError }) {
 }
 
 
-function Recommendations({ recommendations }) {
+function Recommendations({ recommendations, customerOptions, selectedCustomerId, onCustomerChange, isLoading, hasError }) {
+  if (!customerOptions.length) {
+    return <EmptyPanel title="No registered customers" detail="Register a customer in the shop before running recommendations." />;
+  }
   return (
-    <section className="recommendation-grid">
-      {recommendations.map((item) => (
-        <article className="product-card" key={item.product}>
-          <div className="product-art" style={{ background: item.gradient }}>
-            <PackageCheck size={30} aria-hidden="true" />
-          </div>
-          <div className="product-body">
-            <p className="eyebrow">{item.segment}</p>
-            <h3>{item.product}</h3>
-            <p>{item.reason}</p>
-            <div className="score-row">
-              <span>Affinity</span>
-              <strong>{item.score}%</strong>
+    <div className="view-stack">
+      {(isLoading || hasError) && (
+        <div className={`status-banner ${hasError ? 'error' : ''}`} role="status" aria-live="polite">
+          <strong>{hasError ? 'Recommendation error' : 'Loading'}</strong>
+          <span>{hasError ? 'ML recommendation API unavailable.' : 'Running product affinity model...'}</span>
+        </div>
+      )}
+      <div className="panel controls-panel">
+        <label className="customer-picker compact">
+          <span>Customer</span>
+          <select value={selectedCustomerId} onChange={(event) => onCustomerChange(event.target.value)}>
+            {customerOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {hasError && !isLoading && (
+        <EmptyPanel title="Recommendations unavailable" detail="The dashboard did not receive a recommendation response from the ML API." />
+      )}
+      {!hasError && !isLoading && recommendations.length === 0 && (
+        <EmptyPanel title="No recommendations yet" detail="Place an order in the shop, then return here to see recommendation output for that customer." />
+      )}
+      <section className="recommendation-grid" aria-busy={isLoading}>
+        {!hasError && recommendations.map((item) => (
+          <article className={`product-card ${isLoading ? 'is-skeleton' : ''}`} key={item.product}>
+            <div className="product-art" style={{ background: item.gradient }}>
+              <PackageCheck size={30} aria-hidden="true" />
             </div>
-            <div className="progress-track">
-              <span style={{ width: `${item.score}%` }} />
+            <div className="product-body">
+              <p className="eyebrow">{item.segment}</p>
+              <h3>{item.product}</h3>
+              <p>{item.reason}</p>
+              <div className="score-row">
+                <span>Affinity</span>
+                <strong>{item.score}%</strong>
+              </div>
+              <div className="progress-track">
+                <span style={{ width: `${item.score}%` }} />
+              </div>
             </div>
-          </div>
-        </article>
-      ))}
-    </section>
+          </article>
+        ))}
+      </section>
+    </div>
   );
 }
 
-function Forecasting({ forecast }) {
+function Forecasting({ forecast, model, customerOptions, selectedCustomerId, onCustomerChange, isLoading, hasError }) {
+  if (!customerOptions.length) {
+    return <EmptyPanel title="No registered customers" detail="Register a customer in the shop before running a forecast." />;
+  }
+  if (hasError && !isLoading) {
+    return <EmptyPanel title="Forecast unavailable" detail="This customer needs enough order history, or the ML forecast API is unavailable." />;
+  }
+  if (!forecast.length && !isLoading) {
+    return <EmptyPanel title="No forecast data" detail="This customer needs at least three orders before forecasting." />;
+  }
   const max = Math.max(...forecast.map((point) => point.predicted));
   return (
-    <section className="panel full-height">
-      <PanelTitle icon={TrendingUp} title="Demand Forecast" />
-      <div className="line-chart">
-        {forecast.map((point, index) => (
-          <div className="line-point" key={point.day}>
-            <span className="forecast-stem" style={{ height: `${(point.predicted / max) * 78}%` }} />
-            <span className="actual-stem" style={{ height: `${(point.actual / max) * 78}%` }} />
-            <small>{point.day}</small>
-            <strong>{point.predicted}k</strong>
-            {index === forecast.length - 1 && <em>next</em>}
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="view-stack">
+      {(isLoading || hasError) && (
+        <div className={`status-banner ${hasError ? 'error' : ''}`} role="status" aria-live="polite">
+          <strong>{hasError ? 'Forecast error' : 'Loading'}</strong>
+          <span>{hasError ? 'ML forecast API unavailable.' : 'Running revenue forecast model...'}</span>
+        </div>
+      )}
+      <section className={`panel full-height ${isLoading ? 'is-skeleton' : ''}`}>
+        <div className="forecast-head">
+          <PanelTitle icon={TrendingUp} title="Revenue Forecast" />
+          <label className="customer-picker compact">
+            <span>Customer</span>
+            <select value={selectedCustomerId} onChange={(event) => onCustomerChange(event.target.value)}>
+              {customerOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {model && <span className="source-pill live">{model}</span>}
+        <div className="line-chart">
+          {forecast.map((point, index) => (
+            <div className="line-point" key={point.day}>
+              <span className="forecast-stem" style={{ height: `${(point.predicted / max) * 78}%` }} />
+              <span className="actual-stem" style={{ height: `${(point.actual / max) * 78}%` }} />
+              <small>{point.day}</small>
+              <strong>{point.predicted}k</strong>
+              {index === forecast.length - 1 && <em>next</em>}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -386,8 +681,8 @@ function RetailAI({ intelligence, isLoading, hasError }) {
   return (
     <section className="retail-ai-grid">
       {(isLoading || hasError) && (
-        <div className="status-banner" role="status" aria-live="polite">
-          <strong>{hasError ? 'Retail AI fallback' : 'Loading'}</strong>
+        <div className={`status-banner ${hasError ? 'error' : ''}`} role="status" aria-live="polite">
+          <strong>{hasError ? 'Retail AI error' : 'Loading'}</strong>
           <span>{hasError ? 'Internal intelligence API unavailable.' : 'Fetching retail ML outputs...'}</span>
         </div>
       )}
@@ -446,21 +741,32 @@ function RetailAI({ intelligence, isLoading, hasError }) {
 }
 
 function Explainability({ explanation, isLoading, hasError }) {
+  if ((hasError || !explanation) && !isLoading) {
+    return <EmptyPanel title="Explainability unavailable" detail="The intelligence API could not compute attribution from the selected customer and recommendation inputs." />;
+  }
+  const features = explanation?.features || [];
   return (
     <section className="explain-layout">
       {(isLoading || hasError) && (
-        <div className="status-banner" role="status" aria-live="polite">
-          <strong>{hasError ? 'Demo explainability' : 'Loading'}</strong>
+        <div className={`status-banner ${hasError ? 'error' : ''}`} role="status" aria-live="polite">
+          <strong>{hasError ? 'Explainability error' : 'Loading'}</strong>
           <span>
-            {hasError ? 'Internal intelligence API unavailable — showing demo explanations.' : 'Fetching feature attribution...'}
+            {hasError ? 'Internal intelligence API unavailable.' : 'Fetching feature attribution...'}
           </span>
         </div>
       )}
 
       <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
         <PanelTitle icon={BrainCircuit} title="Feature Attribution" />
+        {explanation?.recommended_product && (
+          <div className="compact-list horizontal">
+            <span>Product: <strong>{explanation.recommended_product}</strong></span>
+            <span>Score: <strong>{Math.round(explanation.recommendation_score * 100)}%</strong></span>
+            <span>Source: <strong>{explanation.recommendation_source}</strong></span>
+          </div>
+        )}
         <div className="attribution-list" aria-busy={isLoading}>
-          {explanation.features.map((feature) => (
+          {features.map((feature) => (
             <div className="attribution-row" key={feature.name}>
               <span>{feature.name}</span>
               <div className="attribution-track">
@@ -479,28 +785,45 @@ function Explainability({ explanation, isLoading, hasError }) {
       </div>
       <div className={`panel ${isLoading ? 'is-skeleton' : ''}`}>
         <PanelTitle icon={MessageSquareText} title="Natural Language Explanation" />
-        <p className="narrative">{explanation.explanation}</p>
+        <p className="narrative">{explanation?.explanation || 'Computing attribution from recommendation evidence...'}</p>
       </div>
     </section>
   );
 }
 
 
-function Customer360({ customer, graph, source, isLoading, hasError }) {
+function Customer360({ customer, graph, source, customerOptions, selectedCustomerId, onCustomerChange, isLoading, hasError }) {
+  if (!customerOptions.length) {
+    return <EmptyPanel title="No registered customers" detail="Register a customer in the shop before viewing Customer 360." />;
+  }
+  if (hasError && !isLoading) {
+    return <EmptyPanel title="Customer graph unavailable" detail="The graph API did not return customer data." />;
+  }
+  if (!customer || !graph.nodes.length) {
+    return <EmptyPanel title="No customer graph yet" detail="This customer has no purchases, browse events, or graph edges to visualize." />;
+  }
   const relationshipEdges = graph.edges.filter((edge) => edge.source_position && edge.target_position);
   return (
     <section className="customer-layout">
       {(isLoading || hasError) && (
-        <div className="status-banner" role="status" aria-live="polite">
-          <strong>{hasError ? 'Demo graph' : 'Loading'}</strong>
+        <div className={`status-banner ${hasError ? 'error' : ''}`} role="status" aria-live="polite">
+          <strong>{hasError ? 'Graph error' : 'Loading'}</strong>
           <span>
-            {hasError ? 'Internal customer graph API unavailable — showing demo graph.' : 'Fetching customer graph & profile...'}
+            {hasError ? 'Internal customer graph API unavailable.' : 'Fetching customer graph & profile...'}
           </span>
         </div>
       )}
 
       <div className={`panel profile-panel ${isLoading ? 'is-skeleton' : ''}`}>
         <PanelTitle icon={Users} title="Customer Profile" />
+        <label className="customer-picker">
+          <span>Customer</span>
+          <select value={selectedCustomerId} onChange={(event) => onCustomerChange(event.target.value)}>
+            {customerOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+        </label>
         <div className="avatar">{customer.initials}</div>
         <h3>{customer.name}</h3>
         <p>{customer.segment}</p>
@@ -519,7 +842,7 @@ function Customer360({ customer, graph, source, isLoading, hasError }) {
           </div>
         </dl>
         <span className={source === 'mongodb_graph' ? 'source-pill live' : 'source-pill'}>
-          {source === 'mongodb_graph' ? 'MongoDB graph' : 'Graph fallback'}
+          {source === 'mongodb_graph' ? 'MongoDB graph' : 'Graph source unavailable'}
         </span>
       </div>
       <div className={`panel graph-panel ${isLoading ? 'is-skeleton' : ''}`}>
@@ -573,6 +896,15 @@ function Copilot({ query, setQuery, answer, onSubmit }) {
           <p>{answer}</p>
         </div>
       </div>
+    </section>
+  );
+}
+
+function EmptyPanel({ title, detail }) {
+  return (
+    <section className="panel empty-panel">
+      <strong>{title}</strong>
+      <p>{detail}</p>
     </section>
   );
 }

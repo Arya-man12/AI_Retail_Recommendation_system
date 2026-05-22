@@ -1,16 +1,15 @@
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, copilot, dashboard, ecommerce, features, graph, intelligence, ml, processing, streaming, vectors
+from app.routers import auth, copilot, dashboard, ecommerce, features, graph, intelligence, ml, processing, streaming
 from app.services.auth_service import auth_status, seed_bootstrap_users
-from app.services.ecommerce_service import seed_ecommerce_demo_data
 from app.services.feature_store_service import feature_store_status
-from app.services.graph_service import graph_status, seed_demo_graph_if_configured
+from app.services.graph_service import graph_status
 from app.services.mongo_demo_service import seed_dashboard_demo_data
-from app.services.retail_intelligence_service import seed_review_demo_data
 from app.services.streaming_service import start_subscriber_if_enabled, stop_subscriber
-from app.services.vector_service import VectorServiceError, vector_store_status
 
 app = FastAPI(title=settings.app_name)
 
@@ -27,7 +26,6 @@ app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(copilot.router, prefix="/api/copilot", tags=["copilot"])
 app.include_router(ml.router, prefix="/api/ml", tags=["ml"])
-app.include_router(vectors.router, prefix="/api/vectors", tags=["vectors"])
 app.include_router(processing.router, prefix="/api/processing", tags=["processing"])
 app.include_router(ecommerce.router, prefix="/api/ecommerce", tags=["ecommerce"])
 app.include_router(streaming.router, prefix="/api/streaming", tags=["streaming"])
@@ -43,17 +41,15 @@ def health() -> dict[str, str]:
 
 @app.get("/ready")
 def ready() -> dict:
-    vector = _safe_vector_status()
     dependencies = {
         "auth": auth_status(),
         "redis": feature_store_status(),
         "customer_graph": graph_status(),
-        "qdrant": vector,
     }
     ready_status = all(
         dependency.get("connected", False)
         for dependency in dependencies.values()
-        if dependency.get("provider") in {"mongodb", "redis", "mongodb_graph", "qdrant"}
+        if dependency.get("provider") in {"mongodb", "redis", "mongodb_graph"}
     )
     return {
         "status": "ready" if ready_status else "degraded",
@@ -64,12 +60,7 @@ def ready() -> dict:
 
 @app.on_event("startup")
 def startup() -> None:
-    seed_bootstrap_users()
-    seed_dashboard_demo_data()
-    seed_ecommerce_demo_data()
-    seed_review_demo_data()
-    seed_demo_graph_if_configured()
-    start_subscriber_if_enabled()
+    threading.Thread(target=_seed_startup_data, name="startup-demo-seed", daemon=True).start()
 
 
 @app.on_event("shutdown")
@@ -77,12 +68,7 @@ def shutdown() -> None:
     stop_subscriber()
 
 
-def _safe_vector_status() -> dict:
-    try:
-        return vector_store_status()
-    except VectorServiceError as exc:
-        return {
-            "provider": "qdrant",
-            "connected": False,
-            "error": str(exc),
-        }
+def _seed_startup_data() -> None:
+    seed_bootstrap_users()
+    seed_dashboard_demo_data()
+    start_subscriber_if_enabled()

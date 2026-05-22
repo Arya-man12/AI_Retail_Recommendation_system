@@ -13,7 +13,6 @@ DEMO_FEATURES = {
         "monetary_value": 18420.0,
         "discount_sensitivity": 0.22,
         "bundle_affinity": 0.86,
-        "regional_demand_index": 0.91,
         "churn_risk": 0.08,
     },
     "cust-urban-commuter": {
@@ -22,7 +21,6 @@ DEMO_FEATURES = {
         "monetary_value": 8600.0,
         "discount_sensitivity": 0.35,
         "bundle_affinity": 0.62,
-        "regional_demand_index": 0.68,
         "churn_risk": 0.18,
     },
     "cust-winback": {
@@ -31,7 +29,6 @@ DEMO_FEATURES = {
         "monetary_value": 4200.0,
         "discount_sensitivity": 0.71,
         "bundle_affinity": 0.44,
-        "regional_demand_index": 0.47,
         "churn_risk": 0.72,
     },
 }

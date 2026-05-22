@@ -168,7 +168,7 @@ def _local_answer(question: str, tool_outputs: dict, fallback_reason: str) -> st
     recommendation = tool_outputs.get("recommendation")
     if recommendation:
         top = recommendation["recommendations"][0]
-        parts.append(f"The top recommendation is {top['product']} with a {top['score']:.0%} affinity score.")
+        parts.append(f"The top recommendation is {top['product']} with a {top['score']:.0%} transparent recommendation score.")
     explanation = tool_outputs.get("explainability")
     if explanation:
         driver = explanation["features"][0]

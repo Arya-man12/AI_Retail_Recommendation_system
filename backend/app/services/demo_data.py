@@ -67,10 +67,10 @@ def dashboard_payload() -> dict:
             {"day": "Sun", "actual": 0, "predicted": 352},
         ],
         "explainability": {
-            "explanation": "The recommendation is mostly driven by high recent category engagement, strong regional demand, and a low discount sensitivity score. Churn risk slightly reduces confidence.",
+            "explanation": "The recommendation is mostly driven by recent category engagement, transparent product scoring, bundle affinity, and a low discount sensitivity score. Churn risk slightly reduces confidence.",
             "features": [
                 {"name": "Recent product views", "impact": 0.38},
-                {"name": "Regional demand index", "impact": 0.29},
+                {"name": "Transparent product score", "impact": 0.29},
                 {"name": "Bundle affinity", "impact": 0.21},
                 {"name": "Discount sensitivity", "impact": 0.14},
                 {"name": "Churn risk", "impact": -0.12},
@@ -115,6 +115,6 @@ def dashboard_payload() -> dict:
                 "Customer 360 graph tool",
                 "Geo analytics tool",
             ],
-            "sampleAnswer": "Northeast revenue is rising because recent premium bundle views, regional demand, and campaign engagement are all above baseline. The recommendation tool would prioritize hydration and air quality bundles for this region.",
+            "sampleAnswer": "Revenue is rising because recent premium bundle views, transparent product scoring, and campaign engagement are all above baseline. The recommendation tool would prioritize hydration and air quality bundles for these customers.",
         },
     }

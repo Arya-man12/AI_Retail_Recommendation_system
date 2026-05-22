@@ -23,10 +23,6 @@ class Settings(BaseSettings):
     openrouter_temperature: float = 0.2
     mlflow_tracking_uri: str = "./mlruns"
     mlflow_experiment_name: str = "customer-intelligence-baselines"
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: str | None = None
-    qdrant_collection: str = "customer_product_embeddings"
-    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     redis_url: str = "redis://localhost:6379/0"
     redis_feature_prefix: str = "ci:features"
     redis_socket_timeout_seconds: float = 2.0
@@ -45,7 +41,7 @@ class Settings(BaseSettings):
     seed_shop_email: str = "shopper@example.com"
     seed_shop_password: str = "Shopper123!"
     seed_shop_role: str = "customer"
-    ml_recommender_model: str = "content_affinity"
+    ml_recommender_model: str = "transparent_rules"
     ml_segmentation_model: str = "kmeans"
     ml_forecast_model: str = "moving_average"
     ml_kmeans_clusters: int = 4
@@ -67,7 +63,7 @@ class Settings(BaseSettings):
     enable_local_event_mirror: bool = True
     emqx_connect_timeout_seconds: float = 5.0
 
-    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
 
 
 settings = Settings()

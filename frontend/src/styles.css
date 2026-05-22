@@ -265,6 +265,36 @@ h3 {
   gap: 12px;
 }
 
+.auth-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.auth-mode button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.auth-mode button.active {
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
 .auth-form input {
   width: 100%;
   min-height: 44px;
@@ -290,6 +320,31 @@ h3 {
 .auth-form span {
   color: #64748b;
   font-weight: 800;
+}
+
+.access-list {
+  display: grid;
+  gap: 10px;
+  max-width: 720px;
+  margin-top: 18px;
+}
+
+.access-list div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.access-list strong {
+  color: #172033;
+}
+
+.access-list span {
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .view-stack {
@@ -356,6 +411,10 @@ h3 {
 
 .panel {
   padding: 18px;
+}
+
+.controls-panel {
+  padding: 14px;
 }
 
 .panel-title {
@@ -595,6 +654,48 @@ h3 {
   text-align: center;
 }
 
+.customer-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.customer-picker.compact {
+  max-width: 360px;
+  margin-bottom: 0;
+}
+
+.customer-picker span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.customer-picker select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #172033;
+  font-weight: 800;
+}
+
+.forecast-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 4px;
+}
+
+.forecast-head .panel-title {
+  margin-bottom: 0;
+}
+
 .avatar {
   width: 86px;
   height: 86px;
@@ -763,6 +864,24 @@ dd {
   white-space: pre-line;
 }
 
+.empty-panel {
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  align-content: center;
+}
+
+.empty-panel strong {
+  color: #172033;
+  font-size: 1.2rem;
+}
+
+.empty-panel p {
+  margin-bottom: 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
 .status-banner {
   padding: 14px 16px;
   border-radius: 8px;
@@ -772,6 +891,19 @@ dd {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.status-banner.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.status-banner.error strong {
+  color: #991b1b;
+}
+
+.status-banner.error span {
+  color: #7f1d1d;
 }
 
 .status-banner strong {

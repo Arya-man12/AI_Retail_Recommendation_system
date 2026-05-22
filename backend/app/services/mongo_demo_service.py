@@ -8,6 +8,10 @@ from app.services.demo_data import dashboard_payload
 DEMO_DASHBOARD_ID = "default-dashboard"
 
 
+class DashboardDataError(RuntimeError):
+    pass
+
+
 def seed_dashboard_demo_data() -> dict:
     payload = dashboard_payload()
     document = {
@@ -46,10 +50,8 @@ def get_dashboard_payload() -> dict:
                 **document["payload"],
                 "source": "mongodb",
             }
-    except Exception:
-        pass
-
-    return {
-        **dashboard_payload(),
-        "source": "demo_fallback",
-    }
+        raise DashboardDataError("Dashboard data has not been seeded in MongoDB")
+    except DashboardDataError:
+        raise
+    except Exception as exc:
+        raise DashboardDataError(f"Unable to load dashboard data from MongoDB: {exc}") from exc

@@ -5,7 +5,7 @@ This repository is being built from the frontend inward, matching the requested 
 1. Vite dashboard
 2. FastAPI backend
 3. Controlled LLM orchestration with LangChain and LangSmith tracing
-4. ML, feature, vector, graph, geo, streaming, and simulator layers
+4. ML, feature, graph, geo, streaming, and simulator layers
 
 The current implementation is the first working vertical slice: a Vite frontend wired to a FastAPI API contract with realistic mock data and LangSmith-ready backend tracing.
 
@@ -18,8 +18,7 @@ The backend now also includes:
 - OpenRouter-hosted NVIDIA Nemotron copilot responses
 - MLflow tracking configuration and prototype model run logging
 - A policy guardrails service for LLM/copilot prompts and RBAC checks
-- Qdrant client configuration for required vector storage and semantic search
-- Sentence Transformers embedding generation for Qdrant product search
+- Transparent recommendation scoring with feature-level explanation drivers
 - Baseline prototype models for forecasting, recommendation, and segmentation
 
 ## Project Layout
@@ -59,10 +58,6 @@ POST /api/ml/forecast
 POST /api/ml/forecast/prophet
 POST /api/ml/recommendations
 POST /api/ml/segments
-GET  /api/vectors/status
-POST /api/vectors/products/collection
-POST /api/vectors/products/seed
-POST /api/vectors/similar-products
 POST /api/copilot/ask
 GET  /api/processing/spark/status
 GET  /api/processing/spark/start-check
@@ -87,7 +82,7 @@ analyst@example.com  / Analyst123!   / marketing_analyst
 shopper@example.com  / Shopper123!   / customer
 ```
 
-The internal dashboard signs in as a dashboard user and sends a bearer token to analytics, intelligence, ML, vector, graph, streaming, and copilot endpoints. The customer-facing shop signs in separately and only receives ecommerce read/write permissions.
+The internal dashboard signs in as a dashboard user and sends a bearer token to analytics, intelligence, ML, graph, streaming, and copilot endpoints. The customer-facing shop signs in separately and only receives ecommerce read/write permissions.
 
 ## Cloud Databases
 
@@ -126,16 +121,9 @@ OPENROUTER_API_KEY=your-openrouter-key
 OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b
 ```
 
-## Vector Search
+## Recommendation Explainability
 
-Qdrant is required for vector search. The backend does not use local fallback similarity search. Start Qdrant, create the collection, then seed product embeddings:
-
-```bash
-curl -X POST http://localhost:8000/api/vectors/products/collection
-curl -X POST http://localhost:8000/api/vectors/products/seed
-```
-
-The embedding model is configured with `EMBEDDING_MODEL_NAME`. On Windows, Sentence Transformers uses PyTorch and may require the Microsoft Visual C++ Redistributable if `torch` DLL loading fails.
+Recommendations use transparent weighted scoring over recent categories, customer segment, product keywords, and product priors. The explainability API returns the same score components as feature attribution, so the dashboard can show why each recommendation was selected without requiring an external vector database.
 
 ## PySpark Processing
 
@@ -160,7 +148,7 @@ The current ML models are baseline prototypes:
 
 - `baseline_revenue_forecaster`: moving-average trend forecast
 - `prophet_revenue_forecaster`: Prophet revenue forecast
-- `baseline_product_recommender`: content/category affinity recommender
+- `transparent_product_recommender`: weighted rule recommender with feature attribution
 - `baseline_customer_segmenter`: RFM-style rule segmenter
 
 They are wired through MLflow so each call logs a run. The next step is to replace these baselines with trained models such as ALS, Prophet/LSTM, KMeans, and BERT sentiment.

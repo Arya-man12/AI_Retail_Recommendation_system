@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.security import require_permissions
 from app.services.ecommerce_service import list_customer_orders, list_products, place_order, seed_product_catalog
-from app.services.retail_intelligence_service import record_browse_event
+from app.services.retail_intelligence_service import record_browse_event, submit_product_review
 
 router = APIRouter()
 
@@ -18,6 +18,13 @@ class BrowseEventRequest(BaseModel):
     customer_id: str = Field(default="customer-demo-001", min_length=3, max_length=80)
     product_id: str
     dwell_seconds: int = Field(default=8, ge=0, le=3600)
+
+
+class ReviewRequest(BaseModel):
+    customer_id: str = Field(default="customer-demo-001", min_length=3, max_length=80)
+    product_id: str
+    rating: int = Field(ge=1, le=5)
+    text: str = Field(min_length=3, max_length=1000)
 
 
 @router.get("/products")
@@ -35,6 +42,8 @@ def orders(payload: OrderRequest, _: dict = Depends(require_permissions({"ecomme
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/orders")
@@ -49,6 +58,16 @@ def browse_events(payload: BrowseEventRequest, _: dict = Depends(require_permiss
         customer_id=payload.customer_id,
         product_id=payload.product_id,
         dwell_seconds=payload.dwell_seconds,
+    )
+
+
+@router.post("/reviews")
+def reviews(payload: ReviewRequest, _: dict = Depends(require_permissions({"ecommerce:write"}))) -> dict:
+    return submit_product_review(
+        customer_id=payload.customer_id,
+        product_id=payload.product_id,
+        rating=payload.rating,
+        text=payload.text,
     )
 
 

@@ -92,11 +92,14 @@ def prophet_forecast(payload: ProphetForecastRequest, _: dict = Depends(require_
 
 @router.post("/recommendations")
 def recommendations(payload: RecommendationRequest, _: dict = Depends(require_permissions({"ml:read"}))) -> dict:
-    return recommend_products(
-        customer_id=payload.customer_id,
-        segment=payload.segment,
-        recent_categories=payload.recent_categories,
-    )
+    try:
+        return recommend_products(
+            customer_id=payload.customer_id,
+            segment=payload.segment,
+            recent_categories=payload.recent_categories,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/segments")

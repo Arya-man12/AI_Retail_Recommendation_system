@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from app.security import require_permissions
 from app.services.intelligence_service import (
@@ -18,6 +19,12 @@ from app.services.retail_intelligence_service import (
 )
 
 router = APIRouter()
+
+
+class FeatureAttributionRequest(BaseModel):
+    customer_id: str = Field(min_length=3, max_length=80)
+    segment: str = Field(min_length=1, max_length=120)
+    recent_categories: list[str] = Field(default_factory=list)
 
 
 @router.get("/snapshot")
@@ -42,7 +49,25 @@ def geo(_: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
 
 @router.get("/explainability")
 def explainability(_: dict = Depends(require_permissions({"intelligence:read"}))) -> dict:
-    return feature_explanation()
+    try:
+        return feature_explanation()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/explainability")
+def explainability_for_customer(
+    payload: FeatureAttributionRequest,
+    _: dict = Depends(require_permissions({"intelligence:read"})),
+) -> dict:
+    try:
+        return feature_explanation(
+            customer_id=payload.customer_id,
+            segment=payload.segment,
+            recent_categories=payload.recent_categories,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/recommendation-insight")

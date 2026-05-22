@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 from app.security import require_roles
 from app.services.copilot_service import answer_question
 from app.services.openrouter_service import OpenRouterError
-from app.services.vector_service import VectorServiceError
 
 router = APIRouter()
 
@@ -33,6 +32,6 @@ def ask_copilot(
         result = answer_question(payload.question, role=user["role"])
     except OpenRouterError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except VectorServiceError as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return CopilotAnswer(**result)

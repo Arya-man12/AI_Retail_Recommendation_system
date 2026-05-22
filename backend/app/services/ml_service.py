@@ -9,10 +9,22 @@ from app.services.mlflow_service import registry_status, tracked_run
 
 
 PRODUCT_CATALOG = [
-    {"product": "Smart Hydration Bundle", "categories": {"wellness", "fitness"}, "base_score": 0.88},
-    {"product": "Air Quality Monitor Pro", "categories": {"smart home", "wellness"}, "base_score": 0.78},
-    {"product": "Compact Power Kit", "categories": {"travel", "commuter"}, "base_score": 0.74},
-    {"product": "Sleep Recovery Sensor", "categories": {"wellness", "sleep"}, "base_score": 0.7},
+    {"product_id": "sku-hydration", "product": "Smart Hydration Bundle", "categories": {"wellness", "fitness"}, "keywords": {"hydration", "bottle", "filter", "reminder", "fitness"}, "base_score": 0.74},
+    {"product_id": "sku-air", "product": "Air Quality Monitor Pro", "categories": {"smart home", "wellness"}, "keywords": {"air", "quality", "monitor", "home", "sensor"}, "base_score": 0.69},
+    {"product_id": "sku-power", "product": "Compact Power Kit", "categories": {"travel", "commuter"}, "keywords": {"battery", "charger", "cable", "travel", "commuter"}, "base_score": 0.66},
+    {"product_id": "sku-sleep", "product": "Sleep Recovery Sensor", "categories": {"wellness", "sleep"}, "keywords": {"sleep", "recovery", "sensor", "health", "bedside"}, "base_score": 0.64},
+    {"product_id": "sku-focus-lamp", "product": "Adaptive Focus Lamp", "categories": {"smart home", "productivity"}, "keywords": {"lamp", "lighting", "desk", "focus", "productivity"}, "base_score": 0.58},
+    {"product_id": "sku-commuter-pack", "product": "Weatherproof Commuter Pack", "categories": {"commuter", "travel"}, "keywords": {"backpack", "laptop", "weatherproof", "commuter", "storage"}, "base_score": 0.6},
+    {"product_id": "sku-recovery-band", "product": "Recovery Mobility Band Set", "categories": {"wellness", "fitness"}, "keywords": {"recovery", "mobility", "resistance", "bands", "fitness"}, "base_score": 0.57},
+    {"product_id": "sku-desk-hub", "product": "Modular Desk Hub", "categories": {"productivity"}, "keywords": {"desk", "usb", "charging", "dock", "organizer"}, "base_score": 0.56},
+    {"product_id": "sku-travel-filter", "product": "Portable Water Filter", "categories": {"travel", "wellness"}, "keywords": {"water", "filter", "purifier", "travel", "bottle"}, "base_score": 0.56},
+    {"product_id": "sku-air-mini", "product": "Air Quality Monitor Mini", "categories": {"smart home"}, "keywords": {"air", "quality", "mini", "sensor", "alerts"}, "base_score": 0.55},
+    {"product_id": "sku-cable-roll", "product": "Tech Cable Roll", "categories": {"commuter", "productivity"}, "keywords": {"cable", "organizer", "chargers", "adapters", "pouch"}, "base_score": 0.53},
+    {"product_id": "sku-mindful-kit", "product": "Mindful Break Kit", "categories": {"wellness", "productivity"}, "keywords": {"mindful", "break", "timer", "reset", "desk"}, "base_score": 0.54},
+    {"product_id": "sku-ergonomic-stand", "product": "Foldable Ergonomic Stand", "categories": {"productivity", "commuter"}, "keywords": {"laptop", "stand", "ergonomic", "portable", "desk"}, "base_score": 0.52},
+    {"product_id": "sku-cold-brew", "product": "Smart Cold Brew Tumbler", "categories": {"travel"}, "keywords": {"cold", "brew", "tumbler", "temperature", "travel"}, "base_score": 0.51},
+    {"product_id": "sku-sunrise-clock", "product": "Sunrise Routine Clock", "categories": {"smart home", "sleep"}, "keywords": {"sunrise", "clock", "sleep", "lighting", "routine"}, "base_score": 0.52},
+    {"product_id": "sku-fitness-scale", "product": "Connected Fitness Scale", "categories": {"wellness", "fitness"}, "keywords": {"fitness", "scale", "health", "metrics", "profile"}, "base_score": 0.53},
 ]
 
 SEGMENT_TRAINING_POINTS = [
@@ -47,7 +59,7 @@ def get_model_registry_status() -> dict:
             "name": settings.ml_recommender_model,
             "stage": "configured",
             "family": "recommendation",
-            "framework": "content_similarity",
+            "framework": "transparent_weighted_rules",
         },
         {
             "name": settings.ml_segmentation_model,
@@ -305,26 +317,65 @@ def forecast_revenue_with_prophet(history: list[dict], periods: int = 7, frequen
 
 
 def recommend_products(customer_id: str, segment: str, recent_categories: list[str]) -> dict:
-    category_set = {category.lower() for category in recent_categories}
-    scored = []
-    for product in PRODUCT_CATALOG:
-        overlap = len(category_set.intersection(product["categories"]))
-        score = product["base_score"] + (overlap * 0.07)
-        if "high-ltv" in segment.lower():
-            score += 0.04
-        scored.append({"product": product["product"], "score": round(min(score, 0.99), 3)})
-
+    scored = [_score_product(product, segment, recent_categories) for product in PRODUCT_CATALOG]
     recommendations = sorted(scored, key=lambda item: item["score"], reverse=True)[:3]
-    with tracked_run("baseline_product_recommendation", {"model_family": "recommendation"}):
+
+    with tracked_run("transparent_product_recommendation", {"model_family": "recommendation"}):
         mlflow.log_param("customer_id", customer_id)
         mlflow.log_param("segment", segment)
+        mlflow.log_param("recent_categories", ",".join(recent_categories))
+        mlflow.log_param("source", "transparent_rules")
         mlflow.log_metric("top_score", recommendations[0]["score"])
 
     return {
-        "model": "baseline_product_recommender",
+        "model": "transparent_product_recommender",
+        "source": "transparent_rules",
         "customer_id": customer_id,
         "recommendations": recommendations,
     }
+
+
+def _score_product(product: dict, segment: str, recent_categories: list[str]) -> dict:
+    normalized_segment = segment.lower().replace("_", " ")
+    recent_category_set = {category.lower().replace("_", " ") for category in recent_categories if category}
+    matched_categories = recent_category_set.intersection(product["categories"])
+    category_overlap = len(matched_categories) / max(len(product["categories"]), 1)
+    keyword_overlap = len(set(normalized_segment.split()).intersection(product["keywords"])) / max(len(product["keywords"]), 1)
+    segment_fit = _segment_fit(normalized_segment, product["categories"])
+    base_component = product["base_score"] * 0.22
+    category_component = category_overlap * 0.34
+    segment_component = segment_fit * 0.24
+    keyword_component = keyword_overlap * 0.12
+    winback_component = 0.08 if "winback" in normalized_segment and "sleep" in product["categories"] else 0
+    score = min(base_component + category_component + segment_component + keyword_component + winback_component, 0.99)
+    drivers = {
+        "base_product_fit": round(base_component, 3),
+        "recent_category_match": round(category_component, 3),
+        "segment_fit": round(segment_component, 3),
+        "keyword_match": round(keyword_component, 3),
+        "winback_sleep_boost": round(winback_component, 3),
+    }
+    return {
+        "product": product["product"],
+        "product_id": product["product_id"],
+        "category": sorted(matched_categories or product["categories"])[0],
+        "score": round(score, 3),
+        "drivers": drivers,
+    }
+
+
+def _segment_fit(normalized_segment: str, categories: set[str]) -> float:
+    if "wellness" in normalized_segment and categories.intersection({"wellness", "fitness", "sleep"}):
+        return 1.0
+    if "commuter" in normalized_segment and categories.intersection({"commuter", "travel"}):
+        return 1.0
+    if "home" in normalized_segment and "smart home" in categories:
+        return 1.0
+    if "productivity" in normalized_segment and "productivity" in categories:
+        return 1.0
+    if "active shopper" in normalized_segment:
+        return 0.5
+    return 0.0
 
 
 def segment_customer(recency_days: int, frequency: int, monetary_value: float) -> dict:

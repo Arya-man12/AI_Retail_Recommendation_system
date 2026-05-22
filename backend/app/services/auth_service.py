@@ -14,14 +14,13 @@ from app.config import settings
 
 ROLE_PERMISSIONS = {
     "customer": {"ecommerce:read", "ecommerce:write"},
-    "viewer": {"dashboard:read", "intelligence:read"},
+    "viewer": {"dashboard:read", "ecommerce:read", "features:read", "graph:read", "intelligence:read", "ml:read", "streaming:read"},
     "marketing_analyst": {
         "dashboard:read",
         "ecommerce:read",
         "intelligence:read",
         "ml:read",
         "copilot:use",
-        "vectors:read",
         "features:read",
         "graph:read",
         "streaming:read",
@@ -34,8 +33,6 @@ ROLE_PERMISSIONS = {
         "ml:read",
         "ml:write",
         "copilot:use",
-        "vectors:read",
-        "vectors:write",
         "features:read",
         "features:write",
         "graph:read",
@@ -44,6 +41,13 @@ ROLE_PERMISSIONS = {
         "ops:read",
     },
 }
+
+REGISTRATION_ROLES = {
+    "dashboard": "marketing_analyst",
+    "shop": "customer",
+}
+
+_fallback_registered_users: dict[str, dict[str, Any]] = {}
 
 
 class AuthError(RuntimeError):
@@ -93,11 +97,39 @@ def authenticate_user(email: str, password: str) -> dict:
     if not user or not verify_password(password, user["password_hash"]):
         raise AuthError("Invalid email or password")
 
-    return {
-        "email": user["email"],
-        "role": user["role"],
-        "permissions": sorted(ROLE_PERMISSIONS.get(user["role"], set())),
+    return _public_user(user)
+
+
+def register_user(email: str, password: str, site: str) -> dict:
+    normalized_email = email.strip().lower()
+    normalized_site = site.strip().lower()
+    role = REGISTRATION_ROLES.get(normalized_site)
+    if not role:
+        raise AuthError("Registration site must be dashboard or shop")
+    if _find_user(normalized_email):
+        raise AuthError("An account with that email already exists")
+
+    now = datetime.now(UTC)
+    user = {
+        "email": normalized_email,
+        "customer_id": _customer_id_from_email(normalized_email) if role == "customer" else None,
+        "password_hash": hash_password(password),
+        "role": role,
+        "website": normalized_site,
+        "permissions": sorted(ROLE_PERMISSIONS.get(role, set())),
+        "created_at": now,
     }
+
+    try:
+        db = get_mongo_client()[settings.mongodb_database]
+        db.users.create_index("email", unique=True)
+        db.users.insert_one(user)
+    except Exception as exc:
+        if "duplicate" in str(exc).lower():
+            raise AuthError("An account with that email already exists") from exc
+        _fallback_registered_users[normalized_email] = user
+
+    return _public_user(user)
 
 
 def create_access_token(user: dict) -> str:
@@ -105,6 +137,7 @@ def create_access_token(user: dict) -> str:
     payload = {
         "sub": user["email"],
         "role": user["role"],
+        "customer_id": user.get("customer_id"),
         "iss": settings.auth_jwt_issuer,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=settings.auth_token_ttl_minutes)).timestamp()),
@@ -135,7 +168,24 @@ def decode_access_token(token: str) -> dict:
     return {
         "email": payload.get("sub"),
         "role": role,
+        "customer_id": payload.get("customer_id"),
         "permissions": sorted(ROLE_PERMISSIONS.get(role, set())),
+    }
+
+
+def list_customer_accounts() -> dict:
+    users = []
+    db = None
+    try:
+        db = get_mongo_client()[settings.mongodb_database]
+        users = list(db.users.find({"role": "customer"}, {"_id": False, "password_hash": False}).sort("created_at", -1))
+    except Exception:
+        users = [user for user in _fallback_registered_users.values() if user.get("role") == "customer"]
+
+    customers = [_customer_option_from_user(user, db=db) for user in users]
+    return {
+        "customers": customers,
+        "count": len(customers),
     }
 
 
@@ -182,7 +232,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def _find_user(email: str) -> dict[str, Any] | None:
-    normalized = email.lower()
+    normalized = email.strip().lower()
     try:
         db = get_mongo_client()[settings.mongodb_database]
         user = db.users.find_one({"email": normalized}, {"_id": False})
@@ -194,7 +244,18 @@ def _find_user(email: str) -> dict[str, Any] | None:
     for user in _bootstrap_users():
         if normalized == user["email"]:
             return user
+    if normalized in _fallback_registered_users:
+        return _fallback_registered_users[normalized]
     return None
+
+
+def _public_user(user: dict[str, Any]) -> dict:
+    return {
+        "email": user["email"],
+        "customer_id": user.get("customer_id"),
+        "role": user["role"],
+        "permissions": sorted(ROLE_PERMISSIONS.get(user["role"], set())),
+    }
 
 
 def _bootstrap_users() -> list[dict[str, Any]]:
@@ -217,6 +278,7 @@ def _bootstrap_users() -> list[dict[str, Any]]:
             "password": settings.seed_shop_password,
             "role": settings.seed_shop_role,
             "website": "shop",
+            "customer_id": "customer-demo-001",
         },
     ]
     users = []
@@ -229,6 +291,7 @@ def _bootstrap_users() -> list[dict[str, Any]]:
         users.append(
             {
                 "email": email,
+                "customer_id": item.get("customer_id"),
                 "password_hash": hash_password(item["password"]),
                 "role": item["role"],
                 "website": item["website"],
@@ -237,6 +300,88 @@ def _bootstrap_users() -> list[dict[str, Any]]:
             }
         )
     return users
+
+
+def _customer_id_from_email(email: str) -> str:
+    local = email.split("@", 1)[0]
+    cleaned = "".join(character if character.isalnum() else "-" for character in local.lower()).strip("-")
+    return f"cust-{cleaned or secrets.token_hex(4)}"
+
+
+def _customer_option_from_user(user: dict[str, Any], db=None) -> dict:
+    customer_id = user.get("customer_id") or _customer_id_from_email(user["email"])
+    label = user["email"].split("@", 1)[0].replace(".", " ").replace("-", " ").replace("_", " ").title()
+    order_profile = _customer_order_profile(customer_id, db)
+    return {
+        "id": customer_id,
+        "label": label,
+        "email": user["email"],
+        "segment": order_profile["segment"],
+        "recentCategories": order_profile["recent_categories"],
+        "revenueHistory": order_profile["revenue_history"],
+        "orderCount": order_profile["order_count"],
+        "latestRecommendations": order_profile["latest_recommendations"],
+    }
+
+
+def _customer_order_profile(customer_id: str, db=None) -> dict:
+    default_profile = {
+        "segment": "Registered customer",
+        "recent_categories": [],
+        "revenue_history": [],
+        "order_count": 0,
+        "latest_recommendations": [],
+    }
+    if db is None:
+        return default_profile
+
+    try:
+        orders = list(db.orders.find({"customer_id": customer_id}, {"_id": False}).sort("created_at", -1).limit(12))
+    except Exception:
+        return default_profile
+
+    if not orders:
+        return default_profile
+
+    categories = []
+    for order in orders:
+        category = order.get("category") or order.get("product", {}).get("category")
+        if category and category not in categories:
+            categories.append(category)
+
+    revenue_values = []
+    for order in reversed(orders[:6]):
+        revenue = _float_value(order.get("revenue", order.get("total", 0)))
+        if revenue > 0:
+            revenue_values.append(round(revenue, 2))
+
+    latest = orders[0]
+    return {
+        "segment": _segment_from_orders(orders, categories),
+        "recent_categories": categories[:4],
+        "revenue_history": revenue_values,
+        "order_count": len(orders),
+        "latest_recommendations": latest.get("recommendations", []),
+    }
+
+
+def _segment_from_orders(orders: list[dict[str, Any]], categories: list[str]) -> str:
+    if len(orders) >= 5:
+        return "Loyal repeat buyer"
+    if "wellness" in categories:
+        return "Wellness shopper"
+    if "commuter" in categories:
+        return "Commuter shopper"
+    if "smart home" in categories:
+        return "Smart home shopper"
+    return "Active shopper"
+
+
+def _float_value(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _b64_json(payload: dict) -> str:

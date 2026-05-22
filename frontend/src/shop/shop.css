@@ -53,7 +53,8 @@
 .shop-login,
 .shop-hero,
 .shop-grid,
-.post-purchase {
+.post-purchase,
+.review-panel {
   width: min(1180px, calc(100% - 36px));
   margin: 0 auto;
 }
@@ -117,6 +118,36 @@
   gap: 12px;
 }
 
+.shop-auth-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shop-auth-mode button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.shop-auth-mode button.active {
+  background: #f6f8fb;
+  color: #172033;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
 .shop-login-form input {
   width: 100%;
   min-height: 44px;
@@ -142,6 +173,31 @@
 .shop-login-form span {
   color: #64748b;
   font-weight: 800;
+}
+
+.shop-access-list {
+  display: grid;
+  gap: 10px;
+  max-width: 720px;
+  margin-top: 18px;
+}
+
+.shop-access-list div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shop-access-list strong {
+  color: #172033;
+}
+
+.shop-access-list span {
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .shop-status {
@@ -273,6 +329,59 @@
   padding: 12px 0;
 }
 
+.review-panel {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+  align-items: start;
+  padding: 22px 0 42px;
+  border-top: 1px solid #dbe3ee;
+}
+
+.review-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 140px;
+  gap: 12px;
+}
+
+.review-form select,
+.review-form textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.review-form select {
+  min-height: 42px;
+}
+
+.review-form textarea {
+  grid-column: 1 / -1;
+  min-height: 110px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.review-form button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: #14b8a6;
+  color: #ffffff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.review-form span {
+  align-self: center;
+  color: #64748b;
+  font-weight: 800;
+}
+
 .cart-panel {
   width: min(1180px, calc(100% - 36px));
   margin: 0 auto;
@@ -363,8 +472,10 @@
   .shop-login,
   .shop-hero,
   .post-purchase,
+  .review-panel,
   .shop-grid,
-  .recommendation-strip {
+  .recommendation-strip,
+  .review-form {
     grid-template-columns: 1fr;
   }
 
@@ -378,4 +489,3 @@
     grid-column: 1;
   }
 }
-
