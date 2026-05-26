@@ -107,9 +107,6 @@ EMQX_ECOMMERCE_TOPIC=customer-intelligence/ecommerce/events
 EMQX_PURCHASE_TOPIC=customer-intelligence/purchase/events
 ENABLE_EMQX_SUBSCRIBER=true
 ```
-
-For local demos, `ENABLE_LOCAL_EVENT_MIRROR=true` lets the mock shop also feed the insight engine directly while EMQX is not running. The MQTT path is still present: the shop publishes purchase events to EMQX topics, and the enabled subscriber consumes messages and runs insight detection. Use `/api/streaming/emqx/drain` to inspect messages already received by the subscriber.
-
 ## Hosted LLM
 
 The copilot uses OpenRouter for hosted NVIDIA Nemotron inference. The model runs on provider infrastructure, not locally.
@@ -151,4 +148,4 @@ The current ML models are baseline prototypes:
 - `transparent_product_recommender`: weighted rule recommender with feature attribution
 - `baseline_customer_segmenter`: RFM-style rule segmenter
 
-They are wired through MLflow so each call logs a run. The next step is to replace these baselines with trained models such as ALS, Prophet/LSTM, KMeans, and BERT sentiment.
+They are wired through MLflow so each call logs a run. 
